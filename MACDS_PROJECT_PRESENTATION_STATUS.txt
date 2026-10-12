@@ -1,0 +1,228 @@
+MULTI-AGENT CYBER DEFENSE SYSTEM (MACDS)
+PROJECT PROGRESS, FEATURES, VERIFIED FIXES, AND NEXT STEPS
+Status date: 12 October 2026
+
+======================================================================
+1. PROJECT OVERVIEW
+======================================================================
+
+MACDS is a local demonstration application for cybersecurity monitoring,
+incident workflows, and classical AI algorithm demonstrations. It is not
+currently connected to a production network or real security appliances.
+
+Architecture:
+- Frontend: React 19 and Vite; JavaScript source in frontend/src.
+- Backend: Python FastAPI; REST routes and a WebSocket telemetry feed.
+- Storage: SQLite. The normal default remains backend/data/macds.db.
+- Safe database option: set MACDS_DB_PATH before starting the backend to
+  select a separate SQLite file. This preserves the normal default behavior.
+- Local development: backend on 127.0.0.1:8000; frontend on
+  localhost:5173, with Vite proxying /api and /ws to the backend.
+
+The codebase contains nine agent implementations:
+Coordinator, Network Monitoring, Intrusion Detection, Threat Correlation,
+Knowledge Base, Reasoning, Planning, Response, and Learning.
+
+======================================================================
+2. WORK COMPLETED
+======================================================================
+
+PHASE 1 - AI ALGORITHMS LAB AND SAFE TESTING
+- Added optional MACDS_DB_PATH configuration for isolated database testing.
+- Fixed the DFS count display to use total_nodes_traversed; BFS continues
+  to use total_nodes_discovered.
+- DFS rows no longer display a security status that the API does not return.
+- Added visible per-operation API errors and retry clearing in the AI Lab.
+- Made algorithm loading states independent so one operation does not clear
+  another operation's loading state.
+- Algorithm requests are made when an operation is triggered rather than
+  automatically running every hidden section on page load.
+- Verified all eight AI Lab FastAPI operations through real HTTP requests.
+
+PHASE 2 - ATTACK SIMULATOR FUNCTIONAL REPAIRS
+- Kept the existing simulator and its seven-stage agent workflow.
+- Added/retained validation for supported scenarios, intensity, and custom
+  payload inputs; valid scenario aliases remain supported.
+- Custom payloads are treated as synthetic evidence and do not replace the
+  scenario's actual simulated attack type.
+- Added focused HTTP coverage for completed traces, persisted record links,
+  invalid inputs, intensity settings, and payload behavior.
+- The simulator is synthetic and writes records to its selected database.
+
+PHASE 3 - TRUTHFUL DATA AND SOC PRESENTATION
+- Replaced fabricated dashboard fallback counts, agent metrics, traffic
+  distribution, and the static XAI incident narrative with available API
+  data or explicit unavailable/simulated-data labels.
+- Refined shared colors, panel treatment, responsive dashboard/report grids,
+  and application-facing wording.
+- Removed Viva Mode as the default presentation, its academic banner and
+  quick-jump buttons, the unsupported 100% VERIFIED badge, and the fake
+  default Administrator identity.
+- Reports use persisted incident/threat/response records. Unsupported
+  historical agent performance and time-based KPIs are shown as unavailable.
+- The AI Lab now describes the actual fixed/synthetic algorithm models:
+  payoff evaluation, CSP backtracking, configured A* graph, and synthetic
+  hill-climbing fitness. It does not claim unsupported Nash equilibrium,
+  Alpha-Beta, AC-3, forward checking, or global optimality.
+
+PHASE 3.1 - FINAL CONSISTENCY FIXES
+- The report resolution-rate card labels its scope and explains its source.
+  Null values show as unavailable; actual zero values remain zero.
+- Replaced the sidebar's unsupported 9/9 ONLINE claim with 9 CONFIGURED.
+  The app seeds nine roles, but this badge does not claim live health.
+- Removed PRD identifiers from Audit Logs, Knowledge Base, and Rule
+  Management headings.
+- Described the rule sandbox as a local simulated-payload check and the
+  MITRE ATT&CK content as a static reference mapping.
+- Removed the unsupported immutable-audit wording.
+
+======================================================================
+3. FEATURES PRESENT IN THE APPLICATION
+======================================================================
+
+- Dashboard with persisted threat/incident summaries, severity counts,
+  recent incident links, and clearly labeled synthetic network telemetry.
+- Live Monitoring view with configured topology traversal, generated packet
+  stream, traffic statistics, and device status/quarantine controls.
+- Threat and incident views, with investigation details and response flows.
+- Attack Simulator with six synthetic scenarios and a seven-stage trace:
+  brute force, ransomware, SQL injection, DDoS, DNS tunneling, and port scan.
+- AI Algorithms Lab:
+  BFS/DFS topology traversal; A* on a fixed response-state graph;
+  hill climbing on a synthetic fitness function; fixed attacker/defender
+  payoff evaluation; CSP backtracking; forward and backward chaining.
+- Knowledge Base and rule management with rule search, editing/versioning,
+  and a static MITRE ATT&CK reference mapping.
+- Agent configuration/status records, reports, audit logs, settings, and
+  user/role management.
+- SQLite persistence for application users, agent records, rules, threats,
+  incidents, responses, devices, audit logs, and feedback metrics.
+
+======================================================================
+4. VERIFIED CHECKS AND KNOWN BUG STATUS
+======================================================================
+
+Checks completed against disposable databases:
+- Existing backend regression suite: all 10 suites passed.
+- Focused simulator HTTP suite: all 5 tests passed.
+- AI Lab HTTP integration: all eight registered operations returned HTTP
+  200 and the response fields expected by the frontend. BFS and DFS each
+  returned 12 nodes; DFS returned total_nodes_traversed and no status field.
+- Report API success-rate check: returned null with no incidents, 0.0%
+  with one unresolved incident, and 50.0% with one of two incidents
+  mitigated.
+- Frontend production builds passed when output was directed to unique
+  temporary directories; frontend/dist was not overwritten.
+- git diff --check returned no output. The repository has zero tracked Git
+  files, so Git cannot use a tracked baseline to check the whole source tree.
+
+The user reported an earlier blank AI Lab page and a V-not-defined browser
+error. The current AI Lab source builds successfully, and the displayed
+mathematical V text is literal UI content rather than a JavaScript variable.
+Automated browser testing has not been performed by Codex. The user has
+manually inspected the Phase 3 dashboard appearance; individual browser
+flows should still be exercised during demonstration.
+
+No known Phase 3.1 regression remains from the targeted items in this pass.
+The following are limitations or unfinished capabilities, rather than
+claims of completed production behavior:
+
+======================================================================
+5. LIMITATIONS AND WORK STILL TO IMPLEMENT
+======================================================================
+
+DATA AND INTEGRATIONS
+- Packet and traffic telemetry are generated demo data, not captured from
+  a physical network or production monitoring feed.
+- Response actions update MACDS records/configuration; they do not operate
+  real firewalls, endpoints, switches, or user accounts.
+- Simulator activity is synthetic but persists to its configured SQLite
+  database. Use a disposable database for demonstrations and tests.
+- Email/chat notification and enterprise cloud/SIEM integrations are not
+  connected to external services.
+
+ALGORITHM AND ANALYTICS SCOPE
+- Topology search uses a configured graph, not live network discovery.
+- A* uses a fixed response-state model; hill climbing uses a synthetic
+  fitness function; Game Theory evaluates fixed payoffs for one attacker
+  action; CSP returns a valid assignment using backtracking.
+- Forward/backward reasoning uses configured rules and goal dependencies.
+  These are demonstrations, not a trained or general-purpose reasoning
+  platform.
+- MITRE content and recommendation examples are static reference/demo data.
+- Incident resolution rate is a ratio of persisted incidents marked
+  Mitigated or Closed to all persisted incidents; it is not a measured
+  security-detection accuracy metric. MTTD/MTTR are unavailable because the
+  current data model does not store reliable measured durations.
+- Rule Testing Sandbox performs local category/keyword matching against
+  simulated payload text; it is not a production rule deployment or a full
+  backend rule-engine test.
+
+SECURITY AND PRODUCTION READINESS
+- Several read/write API routes and the WebSocket do not enforce
+  authentication consistently; audit/API exports also need authorization
+  review.
+- The current authentication implementation uses a development JWT secret
+  fallback and unsalted SHA-256 password hashing. CORS is permissive.
+- Do not expose this local demo to untrusted networks or describe it as
+  production-secure before a dedicated security-hardening effort.
+
+======================================================================
+6. PRIORITIZED IMPLEMENTATION ROADMAP
+======================================================================
+
+1. SECURITY HARDENING BEFORE ANY NON-LOCAL DEPLOYMENT
+   Define authentication boundaries for every route; enforce role checks;
+   improve password hashing; remove development secrets; review token
+   expiry/logout behavior, WebSocket authentication, CORS, and export
+   authorization/auditing.
+
+2. AUTOMATED UI REGRESSION COVERAGE
+   Add browser tests for login/roles, navigation, AI Lab result/error/retry
+   flows, dashboard empty states, and simulator persistence using a
+   disposable database.
+
+3. REPLACE DEMO INPUTS WITH REAL DATA SOURCES, IF REQUIRED BY SCOPE
+   Define approved network/log ingestion and integrations before presenting
+   generated traffic or simulated response actions as operational data.
+
+4. MAKE ANALYTICS MEASURABLE
+   Define KPI denominators and capture trustworthy detection/response
+   timestamps and analyst feedback. Generate recommendations from measured
+   observations or continue labeling them as static examples.
+
+5. IMPLEMENT ADVANCED ALGORITHMS ONLY IF REQUIRED
+   Separately scope true adversarial game-tree search, data-driven fitness,
+   or stronger CSP propagation. Preserve current API contracts or document
+   any required versioned changes before implementation.
+
+======================================================================
+7. LOCAL STARTUP FOR A SAFE DEMONSTRATION
+======================================================================
+
+Open two PowerShell terminals. The first starts the backend with a unique
+temporary database so simulator actions do not write to the normal project
+database:
+
+    $env:MACDS_DB_PATH = Join-Path $env:TEMP ("macds-demo-" + [guid]::NewGuid().ToString("N") + ".db")
+    Set-Location F:\FOAI\backend
+    python -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+In the second terminal, start the frontend. npm.cmd avoids PowerShell's
+script execution-policy error for npm.ps1:
+
+    Set-Location F:\FOAI\frontend
+    npm.cmd run dev -- --host 127.0.0.1 --port 5173
+
+Open http://localhost:5173. Stop each service with Ctrl+C in its terminal.
+The selected disposable SQLite path is shown by:
+
+    $env:MACDS_DB_PATH
+
+When MACDS_DB_PATH is not set, the backend uses its existing default
+backend/data/macds.db. Do not run database-mutating demos or tests against
+that default if the database contains user data.
+
+======================================================================
+END OF PROJECT STATUS
+======================================================================
