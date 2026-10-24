@@ -10,10 +10,12 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function KnowledgeBaseView() {
   const [mitreMatrix, setMitreMatrix] = useState([]);
   const [rules, setRules] = useState([]);
+  const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('mitre'); // mitre | rules
   const [selectedTechnique, setSelectedTechnique] = useState(null);
@@ -23,6 +25,7 @@ export default function KnowledgeBaseView() {
   }, [search]);
 
   const fetchData = async () => {
+    setLoadError(null);
     try {
       const [mitreData, rulesData] = await Promise.all([
         api.getMitreMatrix(),
@@ -31,7 +34,7 @@ export default function KnowledgeBaseView() {
       setMitreMatrix(mitreData);
       setRules(rulesData);
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load knowledge base references and rules.');
     }
   };
 
@@ -54,6 +57,7 @@ export default function KnowledgeBaseView() {
         <div style={{ display: 'flex', gap: '6px', background: 'rgba(0, 0, 0, 0.4)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
           <button
             onClick={() => setActiveTab('mitre')}
+            aria-pressed={activeTab === 'mitre'}
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
@@ -69,6 +73,7 @@ export default function KnowledgeBaseView() {
           </button>
           <button
             onClick={() => setActiveTab('rules')}
+            aria-pressed={activeTab === 'rules'}
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
@@ -84,6 +89,8 @@ export default function KnowledgeBaseView() {
           </button>
         </div>
       </div>
+
+      <InlineError message={loadError} onRetry={fetchData} />
 
       {/* VIEW 1: MITRE ATT&CK MATRIX */}
       {activeTab === 'mitre' && (
@@ -130,7 +137,7 @@ export default function KnowledgeBaseView() {
       {activeTab === 'rules' && (
         <div className="glass-panel" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Active Knowledge Base Rules & Version History (FR-019, FR-020)</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Active rules and version history</h3>
             <div style={{ position: 'relative' }}>
               <Search style={{ position: 'absolute', left: '10px', top: '8px', width: '14px', height: '14px', color: '#64748b' }} />
               <input

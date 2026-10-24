@@ -138,6 +138,37 @@ class AttackSimulatorHttpTests(unittest.TestCase):
         with response:
             return response.status, json.loads(response.read().decode("utf-8"))
 
+    @classmethod
+    def request_api(cls, path, payload=None, method="GET", token=None):
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = Request(
+            f"{cls.base_url}{path}",
+            data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+            headers=headers,
+            method=method,
+        )
+        try:
+            response = urlopen(request, timeout=20)
+        except HTTPError as exc:
+            status = exc.code
+            body = exc.read().decode("utf-8", errors="replace")
+            exc.close()
+            try:
+                return status, json.loads(body)
+            except json.JSONDecodeError:
+                return status, {"raw_response": body}
+        with response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    @classmethod
+    def login_admin(cls):
+        status, body = cls.request_api("/api/auth/login", {"username": "admin", "password": "Admin@123"}, "POST")
+        if status != 200:
+            raise AssertionError(f"Isolated database admin login failed: {status} {body}")
+        return body["access_token"]
+
     def database_counts(self):
         import sqlite3
 
@@ -280,6 +311,174 @@ class AttackSimulatorHttpTests(unittest.TestCase):
         self.assertEqual(200, status, result)
         self.assert_completed_trace(result, "brute_force")
         self.assertEqual("High", result["intensity"])
+
+    def test_investigation_reconstruction_constraints_plans_and_execution(self):
+        token = self.login_admin()
+        status, simulation = self.request_json({"scenario": "brute_force", "intensity": "Low"})
+        self.assertEqual(200, status, simulation)
+        incident_id = simulation["incident_id"]
+
+        status, dashboard = self.request_api("/api/dashboard/stats")
+        self.assertEqual(200, status, dashboard)
+        import sqlite3
+        conn = sqlite3.connect(self.database_path)
+        try:
+            expected_incidents = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+            expected_autonomous = conn.execute("SELECT COUNT(DISTINCT incident_id) FROM responses WHERE status = 'Executed' AND executed_by = 'Response Agent (Autonomous Engine)' AND incident_id IS NOT NULL").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(expected_incidents, dashboard["summary"]["total_incidents_count"])
+        self.assertEqual(expected_autonomous, dashboard["summary"]["autonomous_response_incidents_count"])
+
+        status, investigation = self.request_api(f"/api/investigations/{incident_id}")
+        self.assertEqual(200, status, investigation)
+        reconstruction = investigation["reconstruction"]
+        self.assertEqual("inferred_route", reconstruction["status"])
+        self.assertEqual(simulation["threat_id"], reconstruction["generated_events"][0]["event_id"])
+        self.assertEqual(simulation["source_ip"], reconstruction["generated_events"][0]["source_ip"])
+        self.assertEqual(simulation["target_ip"], reconstruction["generated_events"][0]["destination_ip"])
+        self.assertIn("Auth-ActiveDirectory-Svr", [node["label"] for node in reconstruction["nodes"]])
+        self.assertTrue(any(edge["inferred"] is False for edge in reconstruction["relationships"]))
+        self.assertTrue(any(edge["inferred"] is True for edge in reconstruction["relationships"]))
+
+        status, plans = self.request_api(f"/api/investigations/{incident_id}/plans", method="POST", token=token)
+        self.assertEqual(200, status, plans)
+        self.assertEqual(3, len(plans))
+        self.assertEqual(3, len({plan["plan_key"] for plan in plans}))
+        for plan in plans:
+            inputs = plan["score_inputs"]
+            expected = round(inputs["containment_scope_points"] - 0.25 * inputs["operational_impact_points"] - 0.10 * inputs["execution_complexity_points"], 2)
+            self.assertEqual(expected, plan["containment_score"])
+            self.assertIn("Heuristic points", plan["score_method"])
+
+        auth_asset = next(asset for asset in investigation["assets"] if asset["ip_address"] == simulation["target_ip"])
+        status, constrained = self.request_api(
+            f"/api/investigations/{incident_id}/critical-asset",
+            {"device_id": auth_asset["device_id"], "constraint_text": "Do not isolate or shut down this business-critical server."},
+            "PUT", token,
+        )
+        self.assertEqual(200, status, constrained)
+        status, refreshed_plans = self.request_api(f"/api/investigations/{incident_id}/plans", method="POST", token=token)
+        self.assertEqual(200, status, refreshed_plans)
+        blocked_plan = next(plan for plan in refreshed_plans if plan["plan_key"] == "isolate_target")
+        self.assertFalse(blocked_plan["valid"])
+        self.assertIn(auth_asset["hostname"], blocked_plan["validation"]["explanation"])
+        self.assertIn("Do not isolate", blocked_plan["validation"]["explanation"])
+
+        conn = sqlite3.connect(self.database_path)
+        try:
+            before_responses = conn.execute("SELECT COUNT(*) FROM responses WHERE incident_id = ?", (incident_id,)).fetchone()[0]
+        finally:
+            conn.close()
+        status, direct_response = self.request_api(
+            f"/api/incidents/{incident_id}/respond",
+            {"action": "ISOLATE_ENDPOINT", "target": simulation["target_ip"], "reason": "direct API bypass attempt"},
+            "POST", token,
+        )
+        self.assertEqual(409, status, direct_response)
+        self.assertIn(auth_asset["hostname"], direct_response["detail"])
+        status, direct_alias = self.request_api(
+            f"/api/incidents/{incident_id}/respond",
+            {"action": "ISOLATE_ENDPOINT_IMMEDIATELY", "target": simulation["target_ip"], "reason": "constraint bypass alias attempt"},
+            "POST", token,
+        )
+        self.assertEqual(409, status, direct_alias)
+        self.assertIn(auth_asset["hostname"], direct_alias["detail"])
+        status, rejected = self.request_api(
+            f"/api/investigations/{incident_id}/execute", {"plan_id": blocked_plan["plan_id"], "containment_score": 100000, "valid": True}, "POST", token
+        )
+        self.assertEqual(409, status, rejected)
+        self.assertIn("Active constraint", rejected["detail"])
+
+        status, refreshed = self.request_api(f"/api/investigations/{incident_id}")
+        self.assertEqual(200, status, refreshed)
+        valid_plan = next(plan for plan in refreshed["plans"] if plan["plan_key"] == "notify_analyst")
+        status, execution = self.request_api(
+            f"/api/investigations/{incident_id}/execute", {"plan_id": valid_plan["plan_id"]}, "POST", token
+        )
+        self.assertEqual(200, status, execution)
+        self.assertEqual("Executed", execution["status"])
+        self.assertTrue(execution["simulation_only"])
+        self.assertEqual(valid_plan["plan_id"], execution["workflow_plan_id"])
+
+        conn = sqlite3.connect(self.database_path)
+        try:
+            after_responses = conn.execute("SELECT COUNT(*) FROM responses WHERE incident_id = ?", (incident_id,)).fetchone()[0]
+            execution_statuses = [row[0] for row in conn.execute("SELECT status FROM simulated_executions WHERE incident_id = ? ORDER BY created_at", (incident_id,)).fetchall()]
+            audit_types = {row[0] for row in conn.execute("SELECT event_type FROM audit_logs WHERE details LIKE ? OR description LIKE ?", (f"%{incident_id}%", f"%{incident_id}%")).fetchall()}
+        finally:
+            conn.close()
+        self.assertEqual(before_responses + 1, after_responses, "Rejected direct/plan actions must not create response success rows")
+        self.assertIn("REJECTED", execution_statuses)
+        self.assertIn("Executed", execution_statuses)
+        self.assertIn("CRITICAL_ASSET_CONSTRAINT_SET", audit_types)
+        self.assertIn("RESPONSE_PLAN_REJECTED", audit_types)
+        self.assertIn("DEFENSIVE_ACTION_EXECUTED", audit_types)
+
+    def test_incomplete_evidence_and_additive_migration_preserve_records(self):
+        import sqlite3
+        import uuid
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        incident_id = f"INC-EMPTY-{uuid.uuid4().hex[:8]}"
+        conn = sqlite3.connect(self.database_path)
+        try:
+            conn.execute("INSERT INTO incidents (incident_id, title, threat_id, status, severity, assigned_to, attack_chain, timeline, evidence, decision_explanation, recommended_action, created_at, updated_at) VALUES (?, ?, NULL, 'Investigating', 'Low', NULL, '[]', '[]', '{}', '{}', NULL, ?, ?)", (incident_id, "Evidence gap verification", now, now))
+            conn.execute("INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)", ("phase5_migration_sentinel", "preserve-me", now))
+            conn.commit()
+        finally:
+            conn.close()
+        status, investigation = self.request_api(f"/api/investigations/{incident_id}")
+        self.assertEqual(200, status, investigation)
+        self.assertEqual("incomplete", investigation["reconstruction"]["status"])
+        self.assertEqual([], investigation["reconstruction"]["generated_events"])
+        status, plan_error = self.request_api(
+            f"/api/investigations/{incident_id}/plans", method="POST", token=self.login_admin()
+        )
+        self.assertEqual(422, status, plan_error)
+        self.assertIn("no stored event", plan_error["detail"])
+
+        env = os.environ.copy()
+        env["MACDS_DB_PATH"] = str(self.database_path)
+        subprocess.run([sys.executable, "-c", "from database import init_db; init_db()"], cwd=BACKEND_DIR, env=env, check=True)
+        conn = sqlite3.connect(self.database_path)
+        try:
+            preserved = conn.execute("SELECT value FROM system_settings WHERE key = 'phase5_migration_sentinel'").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual("preserve-me", preserved)
+
+    def test_ai_lab_http_operations_and_backward_chaining_goals(self):
+        operations = (
+            ("/api/monitoring/topology/bfs", "GET", None, ("total_nodes_discovered", "traversal_steps")),
+            ("/api/monitoring/topology/dfs", "GET", None, ("total_nodes_traversed", "traversal_steps")),
+            ("/api/planning/astar", "GET", None, ("optimal_path", "optimal_total_cost")),
+            ("/api/planning/hill-climbing", "GET", None, ("optimized_threshold", "optimization_steps")),
+            ("/api/planning/csp-firewall", "GET", None, ("solution_found", "optimal_policy_assignment")),
+            ("/api/planning/game-theory", "POST", {"attacker_action": "Stealth_Exfiltration"}, ("optimal_defender_strategy", "optimal_payoff")),
+            ("/api/reasoning/forward-chaining", "POST", {"facts": ["Failed_Logins_Exceeded", "Target_Account_Admin"]}, ("inferred_facts", "fired_rules")),
+        )
+        for path, method, payload, required_fields in operations:
+            with self.subTest(path=path):
+                status, result = self.request_api(path, payload, method)
+                self.assertEqual(200, status, result)
+                for field in required_fields:
+                    self.assertIn(field, result)
+
+        goals = {
+            "Ransomware_Lateral_Outbreak": ["Rapid_File_Modifications", "Encrypted_File_Extensions", "Suspicious_Process_Spawning"],
+            "SQL_Injection_Exploit": ["HTTP_Post_Request", "SQL_Syntax_Payload"],
+            "Brute_Force_Credential_Attack": ["Failed_Logins_Exceeded", "Target_Account_Admin"],
+            "Volumetric_DDoS_Attack": ["SYN_Flood_Packets", "Bandwidth_Spike_Threshold"],
+        }
+        for goal, evidence in goals.items():
+            with self.subTest(goal=goal):
+                status, result = self.request_api("/api/reasoning/backward-chaining", {"goal": goal, "facts": evidence}, "POST")
+                self.assertEqual(200, status, result)
+                self.assertTrue(result["is_proven"], result)
+                self.assertEqual(goal, result["hypothesis_goal"])
+                self.assertIn("proof_tree", result)
 
 
 if __name__ == "__main__":

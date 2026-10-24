@@ -18,6 +18,11 @@ export default function DashboardView({ dashboardStats, dashboardError, telemetr
   const incidents = telemetryData?.recent_incidents || dashboardStats?.recent_incidents || [];
   const agents = telemetryData?.agents || [];
   const messages = telemetryData?.agent_messages || [];
+  const autonomousIncidentCount = stats.autonomous_response_incidents_count;
+  const incidentDenominator = stats.total_incidents_count;
+  const autonomousCoverage = Number.isFinite(autonomousIncidentCount) && Number.isFinite(incidentDenominator)
+    ? (incidentDenominator > 0 ? `${autonomousIncidentCount} / ${incidentDenominator}` : 'No incidents')
+    : 'No data available';
   const severityLevels = [
     ['Critical', '#f87171'], ['High', '#fb923c'], ['Medium', '#facc15'], ['Low', '#60a5fa']
   ];
@@ -35,7 +40,7 @@ export default function DashboardView({ dashboardStats, dashboardError, telemetr
     <section className="dashboard-metrics" aria-label="Security metrics">
       <MetricCard label="Threat records" value={display(stats.total_threats_detected)} note="Persisted threat records" color="#60a5fa" />
       <MetricCard label="Active incidents" value={display(stats.active_incidents)} note="Current incident records" color="#f87171" />
-      <MetricCard label="Autonomous mitigation" value={display(stats.autonomous_mitigation_rate, '%')} note="Recorded autonomous actions / threats" color="#34d399" />
+      <MetricCard label="Incidents with recorded autonomous response" value={autonomousCoverage} note="Distinct incidents with an executed autonomous response / all persisted incidents. This does not measure response effectiveness." color="#34d399" />
       <MetricCard label="Firewall DROP/DENY rules · isolated devices" value={`${display(stats.blocked_firewall_ips)} · ${display(stats.isolated_devices)}`} note="Stored policy and device records" color="#a78bfa" />
     </section>
 

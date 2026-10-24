@@ -12,6 +12,12 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
+
+class ProtectedAssetViolation(Exception):
+    def __init__(self, detail):
+        super().__init__(detail)
+        self.detail = detail
+
 class ResponseAgent:
     def __init__(self, db_conn_factory, coordinator):
         self.agent_id = "agent-responder-008"
@@ -26,13 +32,32 @@ class ResponseAgent:
         action: str,
         target: str,
         executed_by: str = "Response Agent (Autonomous)",
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        workflow_plan_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Executes a defensive response action and logs the entire audit trail"""
         now = datetime.now(timezone.utc).isoformat()
         response_id = f"RESP-{str(uuid.uuid4())[:8].upper()}"
         conn = self.db_conn_factory()
         cursor = conn.cursor()
+
+        # Revalidate active critical-asset constraints in the same SQLite transaction
+        # as a simulated isolation so direct API calls cannot bypass the policy.
+        action_upper = action.upper()
+        if any(term in action_upper for term in ("ISOLAT", "QUARANTIN", "SHUTDOWN", "POWER_OFF", "DISCONNECT")):
+            protected = cursor.execute(
+                """SELECT d.hostname, d.ip_address, c.constraint_text FROM simulated_asset_constraints c
+                   JOIN network_devices d ON d.device_id = c.device_id
+                   WHERE c.incident_id = ? AND (c.device_id = ? OR d.hostname = ? OR d.ip_address = ?)
+                   LIMIT 1""",
+                (incident_id, target, target, target),
+            ).fetchone()
+            if protected:
+                conn.close()
+                raise ProtectedAssetViolation(
+                    f"Rejected: {action} would isolate protected asset {protected['hostname']} ({protected['ip_address']}). "
+                    f"Active constraint: {protected['constraint_text']}"
+                )
 
         details = {}
         status = "Executed"
@@ -103,6 +128,25 @@ class ResponseAgent:
             )
         )
 
+        if workflow_plan_id:
+            execution_id = f"EXEC-{str(uuid.uuid4())[:10].upper()}"
+            result = {
+                "status": status,
+                "response_id": response_id,
+                "incident_id": incident_id,
+                "action": action,
+                "target": target,
+                "details": details,
+                "executed_at": now,
+                "simulation_only": True,
+            }
+            cursor.execute(
+                """INSERT INTO simulated_executions
+                   (execution_id, incident_id, plan_id, response_id, status, result_json, created_by, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (execution_id, incident_id, workflow_plan_id, response_id, status, json.dumps(result), executed_by, now),
+            )
+
         # Update Incident status to Mitigated
         cursor.execute(
             """UPDATE incidents SET status = 'Mitigated', updated_at = ? WHERE incident_id = ?""",
@@ -152,7 +196,9 @@ class ResponseAgent:
             "target": target,
             "status": status,
             "details": details,
-            "executed_at": now
+            "executed_at": now,
+            "simulation_only": True,
+            "workflow_plan_id": workflow_plan_id,
         }
 
     def dispatch_notifications(self, incident_id: str, action: str, target: str, executed_by: str):

@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function UserManagementView() {
   const [users, setUsers] = useState([]);
@@ -20,17 +21,19 @@ export default function UserManagementView() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('Security Analyst');
   const [actionSuccess, setActionSuccess] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
+    setLoadError(null);
     try {
       const data = await api.getUsers();
       setUsers(data);
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load operator accounts.');
     }
   };
 
@@ -69,7 +72,7 @@ export default function UserManagementView() {
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Users style={{ color: '#00f0ff' }} />
-              Operator Accounts & RBAC Permissions (PRD Module 1 FR-001 to FR-004)
+              Operator accounts and access roles
             </h2>
             <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
               Manage access controls across Administrator, Security Analyst, Network Admin, and Auditor roles
@@ -85,6 +88,8 @@ export default function UserManagementView() {
             <span>Create User</span>
           </button>
         </div>
+
+        <InlineError message={loadError} onRetry={fetchUsers} />
 
         {actionSuccess && (
           <div style={{ padding: '10px 14px', borderRadius: '6px', background: 'rgba(0, 255, 157, 0.15)', border: '1px solid rgba(0, 255, 157, 0.4)', color: '#00ff9d', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -217,7 +222,7 @@ export default function UserManagementView() {
       <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <h3 style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Shield style={{ width: '16px', height: '16px', color: '#00f0ff' }} />
-          Role Permission Matrix (FR-002)
+          Role permissions
         </h3>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.75rem' }}>

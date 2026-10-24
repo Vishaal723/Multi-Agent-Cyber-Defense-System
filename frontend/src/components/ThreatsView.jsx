@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function ThreatsView({ onSelectIncident }) {
   const [threats, setThreats] = useState([]);
@@ -19,14 +20,16 @@ export default function ThreatsView({ onSelectIncident }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedThreat, setSelectedThreat] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   const fetchThreats = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await api.getThreats(categoryFilter, severityFilter, 100);
       setThreats(data);
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load threat records.');
     } finally {
       setLoading(false);
     }
@@ -55,10 +58,10 @@ export default function ThreatsView({ onSelectIncident }) {
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <ShieldAlert style={{ color: '#00f0ff' }} />
-            Threat Feeds & Intrusion Detection (PRD Module 4)
+            Threat feeds and detection records
           </h2>
           <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
-            Real-time heuristic classification, threat prioritization, and MITRE ATT&CK mapping
+            Stored and simulation-generated threat records with heuristic classifications and MITRE ATT&CK mappings
           </p>
         </div>
 
@@ -126,6 +129,8 @@ export default function ThreatsView({ onSelectIncident }) {
           </select>
         </div>
       </div>
+
+      <InlineError message={loadError} onRetry={fetchThreats} />
 
       {/* Main Threat Table */}
       <div className="glass-panel" style={{ padding: '20px' }}>

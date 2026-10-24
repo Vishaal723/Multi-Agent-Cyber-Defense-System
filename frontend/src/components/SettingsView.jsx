@@ -10,6 +10,7 @@ import {
   Sliders
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function SettingsView() {
   const [settings, setSettings] = useState({
@@ -22,19 +23,21 @@ export default function SettingsView() {
     alert_channels: '["dashboard", "email_sim", "slack_sim"]'
   });
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     fetchSettings();
   }, []);
 
   const fetchSettings = async () => {
+    setLoadError(null);
     try {
       const data = await api.getSettings();
       if (data && Object.keys(data).length > 0) {
         setSettings((prev) => ({ ...prev, ...data }));
       }
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load system settings.');
     }
   };
 
@@ -58,17 +61,19 @@ export default function SettingsView() {
       <div>
         <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Settings style={{ color: '#00f0ff' }} />
-          System & Swarm Configuration (PRD Module 13 FR-050)
+          System configuration
         </h2>
         <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
           Global detection thresholds, autonomous policy safeguards, and alert delivery channels
         </p>
       </div>
 
+      <InlineError message={loadError} onRetry={fetchSettings} />
+
       {savedSuccess && (
         <div style={{ padding: '10px 14px', borderRadius: '6px', background: 'rgba(0, 255, 157, 0.15)', border: '1px solid rgba(0, 255, 157, 0.4)', color: '#00ff9d', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <CheckCircle2 style={{ width: '16px', height: '16px' }} />
-          <span>System configuration parameters saved and synced across all 9 AI agents.</span>
+          <span>System configuration saved.</span>
         </div>
       )}
 
@@ -111,7 +116,7 @@ export default function SettingsView() {
         <div style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '16px' }}>
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#00ff9d', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
             <Shield style={{ width: '16px', height: '16px' }} />
-            Autonomous Response Policy (PRD Module 9)
+            Simulated response policy
           </h3>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
@@ -145,7 +150,7 @@ export default function SettingsView() {
         <div>
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#ffb700', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
             <Bell style={{ width: '16px', height: '16px' }} />
-            Alert Delivery & Relays (FR-035)
+            Alert delivery options
           </h3>
 
           <div style={{ display: 'flex', gap: '14px' }}>

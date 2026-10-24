@@ -122,6 +122,7 @@ class LearningAgent:
             "analyst_approval_rate_percent": round(approval_rate, 1) if approval_rate is not None else None,
             "false_positive_rate_percent": round(100.0 - approval_rate, 1) if approval_rate is not None else None,
             "total_incidents_triaged": total_incidents,
+            "autonomous_response_incidents_count": autonomously_mitigated_incidents,
             "total_threats_blocked": recorded_block_actions,
             "autonomous_mitigations_count": recorded_autonomous_actions,
             "data_source": "Persisted MACDS records; synthetic simulator records may be included"

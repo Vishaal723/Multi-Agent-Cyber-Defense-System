@@ -11,12 +11,14 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function RuleManagementView() {
   const [rules, setRules] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
   const [testPayload, setTestPayload] = useState("admin' OR 1=1 --");
   const [testResult, setTestResult] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -31,11 +33,12 @@ export default function RuleManagementView() {
   }, []);
 
   const fetchRules = async () => {
+    setLoadError(null);
     try {
       const data = await api.getRules();
       setRules(data);
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load rules.');
     }
   };
 
@@ -94,6 +97,7 @@ export default function RuleManagementView() {
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '20px' }}>
       
       {/* LEFT: Rules Table & Creator */}
+      <InlineError className="rule-load-error" message={loadError} onRetry={fetchRules} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

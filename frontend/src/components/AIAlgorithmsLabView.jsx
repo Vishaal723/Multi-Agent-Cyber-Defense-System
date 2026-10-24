@@ -23,6 +23,13 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 
+const BACKWARD_EVIDENCE_BY_GOAL = {
+  Ransomware_Lateral_Outbreak: ['Rapid_File_Modifications', 'Encrypted_File_Extensions', 'Suspicious_Process_Spawning'],
+  SQL_Injection_Exploit: ['HTTP_Post_Request', 'SQL_Syntax_Payload'],
+  Brute_Force_Credential_Attack: ['Failed_Logins_Exceeded', 'Target_Account_Admin'],
+  Volumetric_DDoS_Attack: ['SYN_Flood_Packets', 'Bandwidth_Spike_Threshold']
+};
+
 export default function AIAlgorithmsLabView() {
   const [activeUnit, setActiveUnit] = useState('unit3');
   const [loading, setLoading] = useState({});
@@ -46,7 +53,7 @@ export default function AIAlgorithmsLabView() {
   const [selectedFacts, setSelectedFacts] = useState(['Failed_Logins_Exceeded', 'Target_Account_Admin']);
   const [fcData, setFcData] = useState(null);
   const [bcGoal, setBcGoal] = useState('Ransomware_Lateral_Outbreak');
-  const [bcFacts, setBcFacts] = useState(['Rapid_File_Modifications', 'Encrypted_File_Extensions', 'Suspicious_Process_Spawning']);
+  const [bcFacts, setBcFacts] = useState(BACKWARD_EVIDENCE_BY_GOAL.Ransomware_Lateral_Outbreak);
   const [bcData, setBcData] = useState(null);
 
   const runOperation = async (operation, request, onSuccess, clearResult) => {
@@ -554,7 +561,13 @@ export default function AIAlgorithmsLabView() {
             <div style={{ display: 'flex', gap: '10px' }}>
               <select
                 value={bcGoal}
-                onChange={(e) => setBcGoal(e.target.value)}
+                onChange={(e) => {
+                  const nextGoal = e.target.value;
+                  setBcGoal(nextGoal);
+                  setBcFacts(BACKWARD_EVIDENCE_BY_GOAL[nextGoal] || []);
+                  setBcData(null);
+                  setOperationErrors((current) => ({ ...current, backwardChaining: null }));
+                }}
                 style={{ padding: '6px 10px', borderRadius: '6px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.78rem', flex: 1 }}
               >
                 <option value="Ransomware_Lateral_Outbreak">Hypothesis: Ransomware Outbreak</option>
@@ -568,6 +581,10 @@ export default function AIAlgorithmsLabView() {
               </button>
             </div>
 
+            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0 }}>
+              Example evidence supplied: {bcFacts.length ? bcFacts.join(', ') : 'none'}
+            </p>
+
             {bcData && (
               <div style={{ background: 'rgba(0, 0, 0, 0.3)', borderRadius: '8px', padding: '12px' }}>
                 <div style={{ fontSize: '0.78rem', color: bcData.is_proven ? '#00ff9d' : '#ff3366', fontWeight: 700, marginBottom: '8px' }}>
@@ -576,7 +593,12 @@ export default function AIAlgorithmsLabView() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {bcData.proof_tree?.map((p, idx) => (
                     <div key={idx} style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#cbd5e1' }}>
-                      &bull; Goal '{p.goal}' &rarr; <span style={{ color: p.status === 'Proven by Base Fact' ? '#00ff9d' : p.status === 'Sub-goals required' ? '#fbbf24' : '#ff3366', fontWeight: 700 }}>{p.status}</span>
+                      &bull; Goal '{p.goal}' &rarr; <span style={{ color: p.status === 'Proven by Base Fact' ? '#00ff9d' : p.status === 'Sub-goals required' ? '#fbbf24' : '#ff3366', fontWeight: 700 }}>{p.status === 'Sub-goals required' ? 'Expanded into sub-goals' : p.status}</span>
+                      {p.sub_goals?.length > 0 && (
+                        <div style={{ marginLeft: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                          Requires: {p.sub_goals.join(', ')}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -607,10 +629,10 @@ export default function AIAlgorithmsLabView() {
             </div>
 
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => runTopologySearch('bfs')} disabled={loading.topology} className="btn-cyber-primary" style={{ padding: '6px 12px', fontSize: '0.75rem' }}>
+              <button onClick={() => runTopologySearch('bfs')} disabled={loading.topology} aria-pressed={searchMethod === 'bfs'} className={searchMethod === 'bfs' ? 'btn-cyber-primary' : 'btn-cyber-outline'} style={{ padding: '6px 12px', fontSize: '0.75rem' }}>
                 {loading.topology ? 'Searching…' : 'Run BFS topology traversal'}
               </button>
-              <button onClick={() => runTopologySearch('dfs')} disabled={loading.topology} className="btn-cyber-outline" style={{ padding: '6px 12px', fontSize: '0.75rem' }}>
+              <button onClick={() => runTopologySearch('dfs')} disabled={loading.topology} aria-pressed={searchMethod === 'dfs'} className={searchMethod === 'dfs' ? 'btn-cyber-primary' : 'btn-cyber-outline'} style={{ padding: '6px 12px', fontSize: '0.75rem' }}>
                 {loading.topology ? 'Searching…' : 'Run DFS traversal'}
               </button>
             </div>

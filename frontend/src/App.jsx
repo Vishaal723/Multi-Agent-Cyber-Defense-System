@@ -110,6 +110,7 @@ export default function App() {
       <div className="main-content">
         {/* Top SOC Header */}
         <Header
+          currentTab={currentTab}
           currentUser={currentUser}
           onOpenLogin={() => setIsLoginOpen(true)}
           onLogout={handleLogout}

@@ -41,66 +41,32 @@ class ThreatCorrelationAgent:
         source_ip = primary_threat.get("source_ip", "Unknown")
         target_ip = primary_threat.get("destination_ip", "192.168.1.15")
 
-        # Build reconstructed timeline and attack chain using DFS exploration
-        timeline = []
-        attack_chain = []
-
-        if attack_type == "brute_force":
-            title = f"Multi-Vector Credential Abuse Campaign against {target_ip}"
-            timeline = [
-                {"timestamp": now, "stage": "Reconnaissance", "detail": f"Port sweep on port 22/3389 from {source_ip}", "agent": "Network Monitoring Agent"},
-                {"timestamp": now, "stage": "Credential Stuffing", "detail": f"14 consecutive failed PAM logins for user 'admin' from {source_ip}", "agent": "Intrusion Detection Agent"},
-                {"timestamp": now, "stage": "Correlation Synthesis", "detail": "Correlated high-frequency authentication anomaly across AD server", "agent": "Threat Correlation Agent"}
-            ]
-            attack_chain = [
-                {"node": source_ip, "role": "External Attacker", "stage": "Initial Probe"},
-                {"node": "192.168.1.1 (Gateway)", "role": "Perimeter Router", "stage": "Traffic Ingress"},
-                {"node": target_ip, "role": "Target Authentication Server", "stage": "Exploitation Attempt"}
-            ]
-        elif attack_type == "ransomware" or attack_type == "malware_c2":
-            title = f"Ransomware Infection & Lateral Movement toward {target_ip}"
-            timeline = [
-                {"timestamp": now, "stage": "Delivery", "detail": f"Malicious macro execution in Workstation-Dev-09", "agent": "Network Monitoring Agent"},
-                {"timestamp": now, "stage": "C2 Beaconing", "detail": f"Encrypted reverse TCP tunnel to external C2 {source_ip}", "agent": "Intrusion Detection Agent"},
-                {"timestamp": now, "stage": "Lateral Probe", "detail": f"Rapid SMB file handle requests targeting {target_ip}", "agent": "Threat Correlation Agent"}
-            ]
-            attack_chain = [
-                {"node": source_ip, "role": "C2 Command Server", "stage": "External Control"},
-                {"node": "192.168.1.112 (Dev Workstation)", "role": "Patient Zero", "stage": "Compromised Host"},
-                {"node": target_ip, "role": "High-Value Database Vault", "stage": "Target Asset"}
-            ]
-        elif attack_type == "sql_injection":
-            title = f"SQL Injection & Data Extraction Attack on {target_ip}"
-            timeline = [
-                {"timestamp": now, "stage": "Exploitation", "detail": f"SQLi payload 'OR 1=1' submitted via HTTP POST to Web-App-Gateway", "agent": "Intrusion Detection Agent"},
-                {"timestamp": now, "stage": "Database Query", "detail": f"Unauthorized backend SELECT schema query from {source_ip}", "agent": "Threat Correlation Agent"}
-            ]
-            attack_chain = [
-                {"node": source_ip, "role": "Remote Exploiter", "stage": "Payload Delivery"},
-                {"node": "192.168.1.20 (Web Gateway)", "role": "Vulnerable Frontend", "stage": "Input Parsing"},
-                {"node": target_ip, "role": "Backend Database", "stage": "Target Table"}
-            ]
-        else:
-            title = f"Security Incident - {primary_threat.get('category', 'Threat')} Activity"
-            timeline = [
-                {"timestamp": now, "stage": "Detection", "detail": f"Suspicious network anomaly detected from {source_ip}", "agent": "Intrusion Detection Agent"},
-                {"timestamp": now, "stage": "Correlation", "detail": "Aggregated threat metrics across network sensors", "agent": "Threat Correlation Agent"}
-            ]
-            attack_chain = [
-                {"node": source_ip, "role": "Source", "stage": "Ingress"},
-                {"node": target_ip, "role": "Target", "stage": "Impact"}
-            ]
+        # Keep the incident narrative limited to the single generated threat record.
+        # Route reconstruction is performed separately against the configured demo topology.
+        title = f"Simulated {primary_threat.get('category', 'Threat')} event from {source_ip} to {target_ip}"
+        timeline = [{
+            "timestamp": primary_threat.get("timestamp", now),
+            "stage": "Generated event observed",
+            "detail": f"Simulator recorded {attack_type} evidence from {source_ip} to {target_ip}.",
+            "agent": "Intrusion Detection Agent",
+            "evidence_id": primary_threat.get("threat_id"),
+            "simulation_only": True,
+        }]
+        attack_chain = [
+            {"node": source_ip, "role": "Generated event source", "stage": "Event endpoint", "evidence_id": primary_threat.get("threat_id")},
+            {"node": target_ip, "role": "Generated event destination", "stage": "Event endpoint", "evidence_id": primary_threat.get("threat_id")},
+        ]
 
         evidence = {
             "source_ip": source_ip,
             "target_ip": target_ip,
             "threat_id": primary_threat.get("threat_id"),
             "attack_type": attack_type,
-            "confidence": primary_threat.get("confidence", 0.85),
+            "confidence": primary_threat.get("confidence"),
             "indicators_of_compromise": [
                 f"Malicious IP: {source_ip}",
-                f"Payload Signature: {primary_threat.get('payload_snippet', 'N/A')}",
-                f"MITRE Technique: {primary_threat.get('mitre_technique', 'T1190')}"
+                f"Generated payload: {primary_threat.get('payload_snippet', 'Unavailable')}",
+                f"MITRE Technique: {primary_threat.get('mitre_technique', 'Unavailable')}"
             ]
         }
 

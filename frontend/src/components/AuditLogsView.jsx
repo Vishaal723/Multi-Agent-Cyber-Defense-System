@@ -10,12 +10,14 @@ import {
   Clock
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function AuditLogsView() {
   const [logs, setLogs] = useState([]);
   const [eventTypeFilter, setEventTypeFilter] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchLogs();
@@ -23,11 +25,12 @@ export default function AuditLogsView() {
 
   const fetchLogs = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getAuditLogs(eventTypeFilter, 100);
       setLogs(data);
     } catch (e) {
-      console.error(e);
+      setError(e?.message || 'Unable to load audit logs.');
     } finally {
       setLoading(false);
     }
@@ -86,6 +89,8 @@ export default function AuditLogsView() {
         </div>
       </div>
 
+      <InlineError message={error} onRetry={fetchLogs} />
+
       {/* Log Table */}
       <div className="glass-panel" style={{ padding: '20px' }}>
         <div style={{ overflowX: 'auto' }}>
@@ -101,7 +106,7 @@ export default function AuditLogsView() {
               </tr>
             </thead>
             <tbody>
-              {filteredLogs.map((l) => (
+              {loading ? <tr><td colSpan="6">Loading audit logs…</td></tr> : filteredLogs.map((l) => (
                 <tr key={l.log_id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
                   <td style={{ padding: '10px', color: '#94a3b8' }}>{l.created_at.slice(11, 19)}</td>
                   <td style={{ padding: '10px', color: '#00f0ff', fontWeight: 600 }}>{l.username || 'System'}</td>

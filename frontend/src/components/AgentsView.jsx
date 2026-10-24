@@ -13,13 +13,16 @@ import {
   Settings
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function AgentsView({ telemetryData }) {
   const [agents, setAgents] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [actionSuccess, setActionSuccess] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   const fetchAgents = async () => {
+    setLoadError(null);
     try {
       const data = await api.getAgents();
       setAgents(data);
@@ -27,7 +30,7 @@ export default function AgentsView({ telemetryData }) {
         setSelectedAgent(data[0]);
       }
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load configured agents.');
     }
   };
 
@@ -54,12 +57,14 @@ export default function AgentsView({ telemetryData }) {
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Bot style={{ color: '#00f0ff' }} />
-            Multi-Agent Swarm Orchestrator (PRD Section 9, 10 & FR-049)
+            Agent roles and controls
           </h2>
           <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
-            Manage lifecycle, heartbeat monitoring, and PEAS runtime parameters across all 9 autonomous agents
+            Manage stored agent lifecycle state and configuration. Resource figures are simulated demo telemetry, not host measurements.
           </p>
         </div>
+
+        <InlineError message={loadError} onRetry={fetchAgents} />
 
         {actionSuccess && (
           <div style={{ padding: '10px 14px', borderRadius: '6px', background: 'rgba(0, 255, 157, 0.15)', border: '1px solid rgba(0, 255, 157, 0.4)', color: '#00ff9d', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -89,27 +94,27 @@ export default function AgentsView({ telemetryData }) {
                     <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>{agent.type} Agent</span>
                     <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f1f5f9', marginTop: '2px' }}>{agent.name}</h4>
                   </div>
-                  <div className="pulse-active" />
+                  <span className={`agent-status-indicator${agent.status === 'Active' ? ' active' : ''}`} aria-hidden="true" />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', fontSize: '0.72rem', background: 'rgba(0, 0, 0, 0.3)', padding: '8px', borderRadius: '6px' }}>
                   <div>
-                    <span style={{ color: '#64748b' }}>CPU</span>
+                    <span style={{ color: '#64748b' }}>Simulated CPU</span>
                     <div style={{ color: '#00f0ff', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{agent.cpu_usage}%</div>
                   </div>
                   <div>
-                    <span style={{ color: '#64748b' }}>RAM</span>
+                    <span style={{ color: '#64748b' }}>Simulated RAM</span>
                     <div style={{ color: '#b05cff', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{agent.memory_usage}%</div>
                   </div>
                   <div>
-                    <span style={{ color: '#64748b' }}>Latency</span>
+                    <span style={{ color: '#64748b' }}>Simulated latency</span>
                     <div style={{ color: '#00ff9d', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{agent.latency_ms}ms</div>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: '#94a3b8' }}>
                   <span>Status: <b style={{ color: agent.status === 'Active' ? '#00ff9d' : '#ff3366' }}>{agent.status}</b></span>
-                  <span>{agent.heartbeat.slice(11, 19)}</span>
+                  <span>Updated {agent.heartbeat.slice(11, 19)}</span>
                 </div>
               </div>
             );
@@ -134,11 +139,12 @@ export default function AgentsView({ telemetryData }) {
               style={{ flex: 1, justifyContent: 'center', padding: '8px', fontSize: '0.75rem' }}
             >
               <RotateCcw style={{ width: '13px', height: '13px' }} />
-              <span>Restart Agent (NFR-006)</span>
+              <span>Restart agent</span>
             </button>
             <button
               onClick={() => handleControlAgent(selectedAgent.agent_id, selectedAgent.status === 'Active' ? 'stop' : 'start')}
               className="btn-cyber-outline"
+              aria-label={`${selectedAgent.status === 'Active' ? 'Stop' : 'Start'} ${selectedAgent.name}`}
               style={{ padding: '8px', fontSize: '0.75rem' }}
             >
               <Power style={{ width: '13px', height: '13px', color: selectedAgent.status === 'Active' ? '#ff3366' : '#00ff9d' }} />

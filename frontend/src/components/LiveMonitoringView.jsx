@@ -15,6 +15,7 @@ import {
   Filter
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function LiveMonitoringView({ telemetryData }) {
   const [devices, setDevices] = useState([]);
@@ -23,15 +24,19 @@ export default function LiveMonitoringView({ telemetryData }) {
   const [activeTab, setActiveTab] = useState('topology'); // topology | packets | devices
   const [activeNode, setActiveNode] = useState(null);
   const [runningSearch, setRunningSearch] = useState(false);
+  const [searchMethod, setSearchMethod] = useState('bfs');
   const [packetFilter, setPacketFilter] = useState('ALL');
   const [loading, setLoading] = useState(false);
+  const [deviceError, setDeviceError] = useState(null);
+  const [searchError, setSearchError] = useState(null);
 
   const fetchDevices = async () => {
+    setDeviceError(null);
     try {
       const data = await api.getDevices();
       setDevices(data);
     } catch (e) {
-      console.error(e);
+      setDeviceError(e?.message || 'Unable to load configured devices.');
     }
   };
 
@@ -41,26 +46,34 @@ export default function LiveMonitoringView({ telemetryData }) {
   }, []);
 
   const handleRunBFS = async () => {
+    setSearchMethod('bfs');
     setRunningSearch(true);
+    setSearchError(null);
+    setBfsResult(null);
+    setDfsResult(null);
     try {
       const data = await api.getBfsTopology('Router-Core');
       setBfsResult(data);
       setDfsResult(null);
     } catch (e) {
-      console.error(e);
+      setSearchError(e?.message || 'Unable to run breadth-first discovery.');
     } finally {
       setRunningSearch(false);
     }
   };
 
   const handleRunDFS = async () => {
+    setSearchMethod('dfs');
     setRunningSearch(true);
+    setSearchError(null);
+    setBfsResult(null);
+    setDfsResult(null);
     try {
       const data = await api.getDfsTopology('Router-Core');
       setDfsResult(data);
       setBfsResult(null);
     } catch (e) {
-      console.error(e);
+      setSearchError(e?.message || 'Unable to run depth-first traversal.');
     } finally {
       setRunningSearch(false);
     }
@@ -85,10 +98,10 @@ export default function LiveMonitoringView({ telemetryData }) {
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Activity style={{ color: '#00f0ff' }} />
-            Network Perception & Monitoring (PRD Module 3 & Unit I)
+            Network telemetry
           </h2>
           <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
-            Continuous traffic inspection, device discovery, and BFS/DFS graph topology exploration
+            Generated telemetry, configured device inventory, and BFS/DFS topology exploration
           </p>
         </div>
 
@@ -96,6 +109,7 @@ export default function LiveMonitoringView({ telemetryData }) {
         <div style={{ display: 'flex', gap: '6px', background: 'rgba(0, 0, 0, 0.4)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
           <button
             onClick={() => setActiveTab('topology')}
+            aria-pressed={activeTab === 'topology'}
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
@@ -111,6 +125,7 @@ export default function LiveMonitoringView({ telemetryData }) {
           </button>
           <button
             onClick={() => setActiveTab('packets')}
+            aria-pressed={activeTab === 'packets'}
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
@@ -122,10 +137,11 @@ export default function LiveMonitoringView({ telemetryData }) {
               cursor: 'pointer'
             }}
           >
-            Live Packet Stream
+            Generated packet stream
           </button>
           <button
             onClick={() => setActiveTab('devices')}
+            aria-pressed={activeTab === 'devices'}
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
@@ -137,10 +153,13 @@ export default function LiveMonitoringView({ telemetryData }) {
               cursor: 'pointer'
             }}
           >
-            Connected Devices ({devices.length})
+            Configured devices ({devices.length})
           </button>
         </div>
       </div>
+
+      <InlineError message={deviceError} onRetry={fetchDevices} />
+      <InlineError message={searchError} onRetry={searchMethod === 'dfs' ? handleRunDFS : handleRunBFS} />
 
       {/* VIEW 1: TOPOLOGY & BFS/DFS */}
       {activeTab === 'topology' && (
@@ -158,16 +177,18 @@ export default function LiveMonitoringView({ telemetryData }) {
                 <button
                   onClick={handleRunBFS}
                   disabled={runningSearch}
-                  className="btn-cyber-primary"
+                  aria-pressed={searchMethod === 'bfs'}
+                  className={searchMethod === 'bfs' ? 'btn-cyber-primary' : 'btn-cyber-outline'}
                   style={{ padding: '5px 12px', fontSize: '0.75rem' }}
                 >
                   <Play style={{ width: '13px', height: '13px' }} />
-                  <span>Run BFS Discovery (Unit I)</span>
+                  <span>Run BFS discovery</span>
                 </button>
                 <button
                   onClick={handleRunDFS}
                   disabled={runningSearch}
-                  className="btn-cyber-outline"
+                  aria-pressed={searchMethod === 'dfs'}
+                  className={searchMethod === 'dfs' ? 'btn-cyber-primary' : 'btn-cyber-outline'}
                   style={{ padding: '5px 12px', fontSize: '0.75rem' }}
                 >
                   <Layers style={{ width: '13px', height: '13px' }} />
@@ -268,7 +289,7 @@ export default function LiveMonitoringView({ telemetryData }) {
           <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Search style={{ width: '16px', height: '16px', color: '#00f0ff' }} />
-              Algorithm Search Trace (AI Unit I)
+              Search trace
             </h3>
 
             {bfsResult && (
@@ -350,7 +371,7 @@ export default function LiveMonitoringView({ telemetryData }) {
       {activeTab === 'packets' && (
         <div className="glass-panel" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Real-Time Packet Stream & Protocol Inspector (FR-008, FR-011)</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Generated packet stream and protocol inspector</h3>
             <div style={{ display: 'flex', gap: '8px' }}>
               {['ALL', 'TCP', 'UDP', 'HTTP', 'HTTPS', 'DNS', 'SSH'].map((p) => (
                 <button
@@ -420,7 +441,7 @@ export default function LiveMonitoringView({ telemetryData }) {
       {activeTab === 'devices' && (
         <div className="glass-panel" style={{ padding: '20px' }}>
           <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '14px' }}>
-            Connected Network Devices & Quarantine Control (FR-009, FR-033)
+            Configured devices and isolation controls
           </h3>
 
           <div style={{ overflowX: 'auto' }}>

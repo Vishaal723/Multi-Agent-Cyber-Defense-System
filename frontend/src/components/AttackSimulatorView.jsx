@@ -20,6 +20,7 @@ import {
   Eye
 } from 'lucide-react';
 import { api } from '../api/client';
+import InvestigationWorkbench from './InvestigationWorkbench';
 
 export default function AttackSimulatorView({ onNavigateToIncident, onNavigateToTab }) {
   const [selectedScenario, setSelectedScenario] = useState('brute_force');
@@ -818,6 +819,7 @@ export default function AttackSimulatorView({ onNavigateToIncident, onNavigateTo
               </div>
             </div>
 
+            <InvestigationWorkbench incidentId={simulationResult.incident_id} />
           </>
         ) : (
           <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '440px', color: '#64748b', gap: '14px', textAlign: 'center' }}>

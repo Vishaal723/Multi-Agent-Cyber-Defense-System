@@ -185,6 +185,13 @@ class SimulateAttackRequest(BaseModel):
     intensity: Optional[Literal["Low", "Medium", "High"]] = "High"
     custom_payload: Optional[StrictStr] = Field(default=None, max_length=2048)
 
+class CriticalAssetConstraintRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=128)
+    constraint_text: str = Field(min_length=10, max_length=500)
+
+class ExecuteInvestigationPlanRequest(BaseModel):
+    plan_id: str = Field(min_length=1, max_length=128)
+
 class FeedbackRequest(BaseModel):
     incident_id: str
     feedback_type: str  # "True_Positive", "False_Positive", "False_Negative"

@@ -18,6 +18,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { api } from '../api/client';
+import InlineError from './InlineError';
 
 export default function IncidentsView({ preselectedIncidentId }) {
   const [incidents, setIncidents] = useState([]);
@@ -25,9 +26,11 @@ export default function IncidentsView({ preselectedIncidentId }) {
   const [loading, setLoading] = useState(false);
   const [responding, setResponding] = useState(false);
   const [actionSuccess, setActionSuccess] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   const fetchIncidents = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await api.getIncidents();
       setIncidents(data);
@@ -38,7 +41,7 @@ export default function IncidentsView({ preselectedIncidentId }) {
         setSelectedIncident(data[0]);
       }
     } catch (e) {
-      console.error(e);
+      setLoadError(e?.message || 'Unable to load incidents.');
     } finally {
       setLoading(false);
     }
@@ -81,11 +84,12 @@ export default function IncidentsView({ preselectedIncidentId }) {
     <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '20px', minHeight: 'calc(100vh - 120px)' }}>
       
       {/* LEFT COLUMN: Incidents List */}
+      <InlineError className="incident-load-error" message={loadError} onRetry={fetchIncidents} />
       <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FolderKanban style={{ color: '#00f0ff', width: '18px', height: '18px' }} />
-            Correlated Incidents (FR-018)
+            Correlated incidents
           </h3>
           <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>{incidents.length} Cases</span>
         </div>
@@ -172,7 +176,7 @@ export default function IncidentsView({ preselectedIncidentId }) {
                   style={{ padding: '6px 12px', fontSize: '0.75rem' }}
                 >
                   <FileDown style={{ width: '14px', height: '14px', color: '#00f0ff' }} />
-                  <span>Export PDF Report (FR-044)</span>
+                  <span>Export PDF report</span>
                 </button>
               </div>
             </div>
@@ -245,7 +249,7 @@ export default function IncidentsView({ preselectedIncidentId }) {
                   AI Logic Inference & Resolution
                 </h3>
                 <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(176, 92, 255, 0.2)', color: '#b05cff' }}>
-                  Unit IV FOL Engine
+                  Logic inference
                 </span>
               </div>
 
@@ -302,7 +306,7 @@ export default function IncidentsView({ preselectedIncidentId }) {
           <div className="glass-panel" style={{ padding: '20px' }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Zap style={{ width: '16px', height: '16px', color: '#ffb700' }} />
-              Response Agent Actuator Controls (FR-032 to FR-034)
+              Response controls
             </h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>

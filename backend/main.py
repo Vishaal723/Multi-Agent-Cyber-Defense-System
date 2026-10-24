@@ -19,7 +19,8 @@ from models import (
     AgentModel, AgentControlRequest, ThreatModel, IncidentModel, IncidentRespondRequest,
     RuleModel, RuleCreateRequest, RuleUpdateRequest, ResponseModel, AuditLogModel,
     DeviceModel, FirewallRuleModel, FirewallRuleCreate, SimulateAttackRequest,
-    FeedbackRequest, BFSDFSRequest, AStarPlanningRequest, GameTheoryRequest, FOLReasoningRequest
+    FeedbackRequest, BFSDFSRequest, AStarPlanningRequest, GameTheoryRequest, FOLReasoningRequest,
+    CriticalAssetConstraintRequest, ExecuteInvestigationPlanRequest
 )
 from auth import (
     create_access_token, verify_password, hash_password,
@@ -32,9 +33,13 @@ from agents.threat_correlator import ThreatCorrelationAgent
 from agents.knowledge_base import KnowledgeBaseAgent
 from agents.reasoning_engine import ReasoningAgent
 from agents.planning_engine import PlanningAgent
-from agents.response_agent import ResponseAgent
+from agents.response_agent import ResponseAgent, ProtectedAssetViolation
 from agents.learning_agent import LearningAgent
 from agents.simulator import AttackSimulator, InvalidSimulationRequest
+from agents.investigation_workflow import (
+    InvestigationWorkflow, InvestigationNotFound, InvestigationEvidenceInsufficient,
+    PlanNotFound, PlanConstraintViolation
+)
 from reporting import ReportingEngine
 
 # Initialize database
@@ -64,6 +69,7 @@ kb_agent = KnowledgeBaseAgent(get_db, coordinator)
 reasoner = ReasoningAgent(get_db, coordinator, kb_agent)
 planner = PlanningAgent(get_db, coordinator, kb_agent)
 responder = ResponseAgent(get_db, coordinator)
+investigation_workflow = InvestigationWorkflow(get_db, net_monitor, responder)
 learner = LearningAgent(get_db, coordinator, kb_agent)
 simulator = AttackSimulator(net_monitor, ids_agent, correlator, reasoner, planner, responder, learner)
 reporter = ReportingEngine(get_db, learner)
@@ -284,6 +290,8 @@ def get_dashboard_stats():
                 if kpis["autonomous_mitigation_rate_percent"] is not None
                 else None
             ),
+            "autonomous_response_incidents_count": kpis["autonomous_response_incidents_count"],
+            "total_incidents_count": kpis["total_incidents_triaged"],
             "mttd_sec": kpis["mean_time_to_detect_sec"],
             "mttr_sec": kpis["mean_time_to_respond_sec"]
         },
@@ -407,13 +415,16 @@ def respond_incident(
     current_user: dict = Depends(require_roles(["Administrator", "Security Analyst"]))
 ):
     actor = f"Analyst ({current_user['username']})" if current_user else "Response Agent"
-    res = responder.execute_action(
-        incident_id=incident_id,
-        action=req.action,
-        target=req.target,
-        executed_by=actor,
-        reason=req.reason
-    )
+    try:
+        res = responder.execute_action(
+            incident_id=incident_id,
+            action=req.action,
+            target=req.target,
+            executed_by=actor,
+            reason=req.reason
+        )
+    except ProtectedAssetViolation as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     return res
 
 # ==========================================
@@ -705,6 +716,64 @@ def update_setting(
 # ==========================================
 # MODULE 14: ATTACK SIMULATION (PRD Section 48)
 # ==========================================
+
+@app.get("/api/investigations/{incident_id}")
+def get_investigation(incident_id: str):
+    try:
+        return investigation_workflow.get_investigation(incident_id)
+    except InvestigationNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@app.put("/api/investigations/{incident_id}/critical-asset")
+def set_critical_asset(
+    incident_id: str,
+    req: CriticalAssetConstraintRequest,
+    current_user: dict = Depends(require_roles(["Administrator", "Security Analyst"]))
+):
+    try:
+        return investigation_workflow.set_critical_asset(
+            incident_id, req.device_id, req.constraint_text, current_user["username"]
+        )
+    except InvestigationNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@app.delete("/api/investigations/{incident_id}/critical-asset/{device_id}")
+def clear_critical_asset(
+    incident_id: str,
+    device_id: str,
+    current_user: dict = Depends(require_roles(["Administrator", "Security Analyst"]))
+):
+    try:
+        return investigation_workflow.clear_critical_asset(incident_id, device_id, current_user["username"])
+    except InvestigationNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@app.post("/api/investigations/{incident_id}/plans")
+def generate_investigation_plans(
+    incident_id: str,
+    current_user: dict = Depends(require_roles(["Administrator", "Security Analyst"]))
+):
+    try:
+        return investigation_workflow.generate_plans(incident_id, current_user["username"])
+    except InvestigationNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InvestigationEvidenceInsufficient as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@app.post("/api/investigations/{incident_id}/execute")
+def execute_investigation_plan(
+    incident_id: str,
+    req: ExecuteInvestigationPlanRequest,
+    current_user: dict = Depends(require_roles(["Administrator", "Security Analyst"]))
+):
+    try:
+        return investigation_workflow.execute_plan(incident_id, req.plan_id, current_user["username"])
+    except (InvestigationNotFound, PlanNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InvestigationEvidenceInsufficient as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except PlanConstraintViolation as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
 
 @app.post("/api/simulation/run")
 def run_attack_simulation(req: SimulateAttackRequest):

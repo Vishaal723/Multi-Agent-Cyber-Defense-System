@@ -190,6 +190,49 @@ def init_db():
     );
     """)
 
+    # Phase 5 investigation records are additive and preserve all existing rows.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS investigation_records (
+        incident_id TEXT PRIMARY KEY,
+        reconstruction_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS simulated_asset_constraints (
+        incident_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        constraint_text TEXT NOT NULL,
+        updated_by TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (incident_id, device_id)
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS investigation_plans (
+        plan_id TEXT PRIMARY KEY,
+        incident_id TEXT NOT NULL,
+        plan_key TEXT NOT NULL,
+        plan_json TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (incident_id, plan_key, created_at)
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS simulated_executions (
+        execution_id TEXT PRIMARY KEY,
+        incident_id TEXT NOT NULL,
+        plan_id TEXT NOT NULL,
+        response_id TEXT,
+        status TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """)
+
     conn.commit()
     seed_initial_data(cursor, conn)
     conn.close()

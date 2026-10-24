@@ -161,6 +161,17 @@ export const api = {
   runSimulation: (scenario, customParams = {}) => apiFetch('/simulation/run', {
     method: 'POST',
     body: JSON.stringify({ scenario, ...customParams })
+  }),
+
+  // Simulated investigation and explainable response planning
+  getInvestigation: (incidentId) => apiFetch(`/investigations/${encodeURIComponent(incidentId)}`),
+  setCriticalAsset: (incidentId, deviceId, constraintText) => apiFetch(`/investigations/${encodeURIComponent(incidentId)}/critical-asset`, {
+    method: 'PUT', body: JSON.stringify({ device_id: deviceId, constraint_text: constraintText })
+  }),
+  clearCriticalAsset: (incidentId, deviceId) => apiFetch(`/investigations/${encodeURIComponent(incidentId)}/critical-asset/${encodeURIComponent(deviceId)}`, { method: 'DELETE' }),
+  generateInvestigationPlans: (incidentId) => apiFetch(`/investigations/${encodeURIComponent(incidentId)}/plans`, { method: 'POST' }),
+  executeInvestigationPlan: (incidentId, planId) => apiFetch(`/investigations/${encodeURIComponent(incidentId)}/execute`, {
+    method: 'POST', body: JSON.stringify({ plan_id: planId })
   })
 };
 
