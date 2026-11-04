@@ -212,7 +212,7 @@ class AttackSimulator:
             "step": 5,
             "agent": "Planning Agent",
             "phase": "Response Ranking and Game Theory Evaluation",
-            "details": f"Selected optimal mitigation '{best_plan['action']}' (Utility: {best_plan['utility_score']})",
+            "details": f"Selected the highest-ranked demonstration response '{best_plan['action']}' from the simulator's fixed utility table (score: {best_plan['utility_score']}).",
             "data": {
                 "top_plan": best_plan,
                 "all_options": ranked_plans,

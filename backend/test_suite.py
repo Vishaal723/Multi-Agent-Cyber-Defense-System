@@ -107,7 +107,7 @@ def run_tests():
     print("  [PASS] Forward and Backward Chaining inference validated.")
 
     # 8. Planning Agent (Unit II/III: A*, Game Theory, CSP, Hill Climbing)
-    print("[8/10] Testing Planning Agent (A*, Game Theory Alpha-Beta, CSP)...")
+    print("[8/10] Testing Planning Agent (A*, fixed payoff evaluation, CSP)...")
     planner = PlanningAgent(get_db, coordinator, kb)
     ranked_opts = planner.rank_response_options({"severity": "Critical", "attack_type": "sql_injection", "source_ip": "45.33.32.156"})
     assert len(ranked_opts) >= 4
@@ -115,11 +115,13 @@ def run_tests():
     assert len(astar_res["optimal_path"]) > 0
     gt_res = planner.run_game_theory_simulation("Stealth_Exfiltration")
     assert gt_res["optimal_defender_strategy"] is not None
+    assert gt_res["algorithm"] == "Fixed Defender Payoff Matrix Evaluation"
+    assert "not an equilibrium result" in gt_res["strategic_recommendation"]
     csp_res = planner.solve_firewall_csp()
     assert csp_res["solution_found"] is True
     hc_res = planner.run_hill_climbing_optimization(0.50)
     assert hc_res["peak_fitness_score"] > 0
-    print("  [PASS] A* Search, Game Theory Alpha-Beta, and CSP Solvers validated.")
+    print("  [PASS] A* Search, fixed defender payoff evaluation, and CSP solver validated.")
 
     # 9. Response Agent & Learning Agent
     print("[9/10] Testing Response Agent and Learning Feedback...")
@@ -138,6 +140,7 @@ def run_tests():
     simulator = AttackSimulator(netmon, ids, correlator, reasoner, planner, responder, learner)
     sim_res = simulator.run_scenario("brute_force")
     assert len(sim_res["execution_steps"]) == 7
+    assert "highest-ranked demonstration response" in sim_res["execution_steps"][4]["details"]
     reporter = ReportingEngine(get_db, learner)
     daily_rep = reporter.generate_daily_report()
     assert daily_rep["metrics"]["threats_detected"] > 0

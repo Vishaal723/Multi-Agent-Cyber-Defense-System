@@ -465,6 +465,10 @@ class AttackSimulatorHttpTests(unittest.TestCase):
         self.assertEqual("preserve-me", preserved)
 
     def test_ai_lab_http_operations_and_backward_chaining_goals(self):
+        status, empty_ranking = self.request_api("/api/detection/greedy-search")
+        self.assertEqual(200, status, empty_ranking)
+        self.assertEqual([], empty_ranking, "An empty database must not return fabricated sample threats.")
+
         operations = (
             ("/api/monitoring/topology/bfs", "GET", None, ("total_nodes_discovered", "traversal_steps")),
             ("/api/monitoring/topology/dfs", "GET", None, ("total_nodes_traversed", "traversal_steps")),

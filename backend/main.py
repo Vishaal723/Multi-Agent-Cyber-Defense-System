@@ -594,13 +594,6 @@ def get_greedy_search_prioritization():
     cursor.execute("SELECT threat_id, attack_type, category, confidence, risk_level, severity, source_ip, destination_ip FROM threats ORDER BY timestamp DESC LIMIT 8")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
-    if not rows:
-        rows = [
-            {"threat_id": "THR-SAMPLE1", "attack_type": "sql_injection", "category": "Web Exploit", "confidence": 0.95, "risk_level": 9.2, "severity": "Critical", "source_ip": "103.251.167.22", "destination_ip": "192.168.1.20"},
-            {"threat_id": "THR-SAMPLE2", "attack_type": "port_scan", "category": "Reconnaissance", "confidence": 0.70, "risk_level": 6.5, "severity": "High", "source_ip": "192.168.1.244", "destination_ip": "192.168.1.15"},
-            {"threat_id": "THR-SAMPLE3", "attack_type": "brute_force", "category": "Credential Access", "confidence": 0.88, "risk_level": 8.5, "severity": "High", "source_ip": "45.33.32.156", "destination_ip": "192.168.1.10"},
-            {"threat_id": "THR-SAMPLE4", "attack_type": "ddos", "category": "Denial of Service", "confidence": 0.91, "risk_level": 9.0, "severity": "Critical", "source_ip": "198.51.100.22", "destination_ip": "192.168.1.1"}
-        ]
     return ids_agent.run_greedy_best_first_search(rows)
 
 # ==========================================

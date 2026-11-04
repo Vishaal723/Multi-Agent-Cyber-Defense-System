@@ -712,7 +712,7 @@ export default function AttackSimulatorView({ onNavigateToIncident, onNavigateTo
                     </div>
 
                     <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>GAME THEORY MINIMAX RECOMMENDATION:</span>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>FIXED DEFENDER PAYOFF COMPARISON:</span>
                       <p style={{ fontSize: '0.75rem', color: '#ffb700', marginTop: '6px' }}>
                         {currentStepData.data?.game_theory?.strategic_recommendation ?? 'No Game Theory result returned'}
                       </p>

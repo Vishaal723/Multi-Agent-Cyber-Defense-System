@@ -3,7 +3,7 @@ Planning Agent Module (PRD Section 10.7, 27.3, 27.5, 28, 29 & Unit II/III)
 Implements:
 - A* Search for response plan pathfinding
 - Hill Climbing for policy optimization
-- Game-Theoretic Attacker vs Defender MiniMax with Alpha-Beta Pruning
+- Fixed Attacker-Action Defender Payoff Evaluation
 - Constraint Satisfaction Problem (CSP) for firewall and network policy optimization
 - Multi-dimensional response option ranking (Cost, Risk, Confidence, Effectiveness)
 """
@@ -204,9 +204,8 @@ class PlanningAgent:
 
     def run_game_theory_simulation(self, attacker_move: str = "Stealth_Exfiltration", depth: int = 3) -> Dict[str, Any]:
         """
-        AI Unit III: Game Theory - Attacker vs Defender Strategic Simulation
-        Implements MiniMax Search with Alpha-Beta Pruning.
-        Attacker maximizes attack damage; Defender minimizes damage / maximizes security payoff.
+        AI Unit III: compare the configured defender payoffs for one selected attacker action.
+        This fixed one-step table evaluation does not implement minimax or equilibrium solving.
         """
         # Payoff matrix (Attacker payoff, Defender payoff)
         # Defender payoff = 100 - Damage - Cost
@@ -226,7 +225,7 @@ class PlanningAgent:
             ("Credential_Stuffing", "Block_Perimeter_IP"): {"attacker": 15, "defender": 85, "comment": "Blocks automated login brute-force engine"}
         }
 
-        # MiniMax with Alpha-Beta Pruning simulation tree
+        # Evaluate each listed defender move against the selected attacker move.
         tree_nodes = []
         alpha = -float("inf")
         beta = float("inf")
@@ -260,13 +259,13 @@ class PlanningAgent:
             tree_nodes.append(node_record)
 
         return {
-            "algorithm": "Game Theory MiniMax with Alpha-Beta Pruning",
+            "algorithm": "Fixed Defender Payoff Matrix Evaluation",
             "unit": "Unit III - Adversarial Search & Strategic Games",
             "attacker_chosen_strategy": attacker_move,
             "optimal_defender_strategy": best_defender_move,
             "optimal_payoff": max_defender_score,
             "game_tree_evaluations": tree_nodes,
-            "strategic_recommendation": f"Against '{attacker_move}', optimal defense is '{best_defender_move}' with security payoff {max_defender_score}/100."
+            "strategic_recommendation": f"Against '{attacker_move}', the highest-scoring listed defender option is '{best_defender_move}' with fixed payoff {max_defender_score}/100. This is a demonstration-table comparison, not an equilibrium result."
         }
 
     def solve_firewall_csp(self, proposed_rules: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
