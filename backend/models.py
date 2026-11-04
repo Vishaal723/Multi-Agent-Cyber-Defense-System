@@ -2,14 +2,14 @@
 MACDS Pydantic Data Models
 Defines all request, response, and agent message schemas.
 """
-from pydantic import BaseModel, Field, StrictStr
-from typing import Optional, List, Dict, Any, Literal
+from pydantic import BaseModel, Field, StrictStr, field_validator
+from typing import Optional, List, Dict, Any, Literal, Annotated
 from datetime import datetime
 
 # Auth Models (FR-001 - FR-004)
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=128, pattern=r"^[^\x00-\x1f\x7f]+$")
+    password: str = Field(min_length=1, max_length=72)
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -20,10 +20,17 @@ class LoginResponse(BaseModel):
     role: str
 
 class UserCreateRequest(BaseModel):
-    username: str
-    password: str
-    email: str
-    role: str
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=12, max_length=72)
+    email: str = Field(min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    role: Literal["Administrator", "Security Analyst", "Network Administrator", "Read-Only Auditor"]
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes.")
+        return value
 
 class UserResponse(BaseModel):
     user_id: str
@@ -33,8 +40,15 @@ class UserResponse(BaseModel):
     created_at: str
 
 class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(min_length=1, max_length=72)
+    new_password: str = Field(min_length=12, max_length=72)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes.")
+        return value
 
 # Agent Models (FR-006, FR-049)
 class AgentModel(BaseModel):
@@ -49,7 +63,7 @@ class AgentModel(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 class AgentControlRequest(BaseModel):
-    action: str  # "start", "stop", "restart", "update_config"
+    action: Literal["start", "stop", "restart"]
     config: Optional[Dict[str, Any]] = None
 
 # Threat Models (FR-012 - FR-015)
@@ -84,9 +98,9 @@ class IncidentModel(BaseModel):
     updated_at: str
 
 class IncidentRespondRequest(BaseModel):
-    action: str  # "BLOCK_IP", "ISOLATE_DEVICE", "LOCKOUT_USER", "UPDATE_FIREWALL", "IGNORE"
-    target: str
-    reason: Optional[str] = None
+    action: str = Field(min_length=1, max_length=64)
+    target: str = Field(min_length=1, max_length=255)
+    reason: Optional[str] = Field(default=None, max_length=500)
     analyst_approved: bool = True
 
 # Rule Models (FR-019 - FR-022)
@@ -105,22 +119,22 @@ class RuleModel(BaseModel):
     updated_at: str
 
 class RuleCreateRequest(BaseModel):
-    name: str
-    condition: str
-    action: str
-    category: str
-    severity: str
-    author: str = "SOC Analyst"
-    mitre_mapping: Optional[str] = None
+    name: str = Field(min_length=1, max_length=120)
+    condition: str = Field(min_length=1, max_length=1000)
+    action: str = Field(min_length=1, max_length=100)
+    category: str = Field(min_length=1, max_length=80)
+    severity: Literal["Critical", "High", "Medium", "Low", "Informational"]
+    author: str = Field(default="SOC Analyst", max_length=80)
+    mitre_mapping: Optional[str] = Field(default=None, max_length=120)
 
 class RuleUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    condition: Optional[str] = None
-    action: Optional[str] = None
-    category: Optional[str] = None
-    severity: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    condition: Optional[str] = Field(default=None, min_length=1, max_length=1000)
+    action: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    severity: Optional[Literal["Critical", "High", "Medium", "Low", "Informational"]] = None
     enabled: Optional[bool] = None
-    mitre_mapping: Optional[str] = None
+    mitre_mapping: Optional[str] = Field(default=None, max_length=120)
 
 # Response Models (FR-028 - FR-036)
 class ResponseModel(BaseModel):
@@ -171,17 +185,17 @@ class FirewallRuleModel(BaseModel):
     created_at: str
 
 class FirewallRuleCreate(BaseModel):
-    ip_address: str
-    port: Optional[int] = None
-    protocol: str = "ALL"
-    action: str = "DENY"
-    comment: Optional[str] = None
+    ip_address: str = Field(min_length=1, max_length=64)
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    protocol: Literal["ALL", "TCP", "UDP", "ICMP"] = "ALL"
+    action: Literal["DENY", "DROP", "ALLOW"] = "DENY"
+    comment: Optional[str] = Field(default=None, max_length=250)
 
 # Simulation & Feedback Models
 class SimulateAttackRequest(BaseModel):
     scenario: str = Field(min_length=1, max_length=64)
-    source_ip: Optional[str] = None
-    target_ip: Optional[str] = None
+    source_ip: Optional[str] = Field(default=None, max_length=64)
+    target_ip: Optional[str] = Field(default=None, max_length=64)
     intensity: Optional[Literal["Low", "Medium", "High"]] = "High"
     custom_payload: Optional[StrictStr] = Field(default=None, max_length=2048)
 
@@ -193,9 +207,9 @@ class ExecuteInvestigationPlanRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=128)
 
 class FeedbackRequest(BaseModel):
-    incident_id: str
-    feedback_type: str  # "True_Positive", "False_Positive", "False_Negative"
-    notes: Optional[str] = None
+    incident_id: str = Field(min_length=1, max_length=128)
+    feedback_type: Literal["True_Positive", "False_Positive", "False_Negative"]
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
 # AI Algorithm Sandbox Request/Response
 class BFSDFSRequest(BaseModel):
@@ -215,6 +229,6 @@ class GameTheoryRequest(BaseModel):
     depth: int = 3
 
 class FOLReasoningRequest(BaseModel):
-    facts: List[str]
-    goal: Optional[str] = None
+    facts: List[Annotated[str, Field(max_length=200)]] = Field(max_length=100)
+    goal: Optional[str] = Field(default=None, max_length=200)
     method: str = "Forward_Chaining"  # "Forward_Chaining" or "Backward_Chaining" or "Resolution"

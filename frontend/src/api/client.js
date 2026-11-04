@@ -5,8 +5,9 @@
 
 const API_BASE = '/api';
 
-export const getAuthToken = () => localStorage.getItem('macds_token');
-export const setAuthToken = (token) => localStorage.setItem('macds_token', token);
+// Sessions use an HttpOnly same-site cookie; bearer tokens are not persisted in browser storage.
+export const getAuthToken = () => null;
+export const setAuthToken = () => localStorage.removeItem('macds_token');
 export const removeAuthToken = () => localStorage.removeItem('macds_token');
 export const getCurrentUserStored = () => {
   const u = localStorage.getItem('macds_user');
@@ -15,21 +16,20 @@ export const getCurrentUserStored = () => {
 export const setCurrentUserStored = (user) => localStorage.setItem('macds_user', JSON.stringify(user));
 
 async function apiFetch(endpoint, options = {}) {
-  const token = getAuthToken();
   const headers = {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...(options.headers || {})
   };
 
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers
+    headers,
+    credentials: 'same-origin'
   });
 
   if (response.status === 401) {
-    // If unauthorized, clear token
-    // removeAuthToken();
+    removeAuthToken();
+    window.dispatchEvent(new CustomEvent('macds:unauthorized'));
   }
 
   if (!response.ok) {
@@ -53,10 +53,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username, password })
     });
-    setAuthToken(data.access_token);
-    setCurrentUserStored(data);
-    return data;
+    removeAuthToken();
+    const user = { user_id: data.user_id, username: data.username, email: data.email, role: data.role };
+    setCurrentUserStored(user);
+    return user;
   },
+  logout: () => apiFetch('/auth/logout', { method: 'POST' }),
   getMe: () => apiFetch('/auth/me'),
   getUsers: () => apiFetch('/auth/users'),
   createUser: (userData) => apiFetch('/auth/users', { method: 'POST', body: JSON.stringify(userData) }),
@@ -129,8 +131,8 @@ export const api = {
   getDailyReport: () => apiFetch('/reports/daily'),
   getWeeklyReport: () => apiFetch('/reports/weekly'),
   exportCsv: async () => {
-    const res = await fetch('/api/reports/export/csv');
-    const blob = await res.blob();
+    const res = await apiFetch('/reports/export/csv');
+    const blob = res;
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -138,8 +140,8 @@ export const api = {
     a.click();
   },
   exportPdf: async (incidentId) => {
-    const res = await fetch(`/api/reports/export/pdf/${incidentId}`);
-    const blob = await res.blob();
+    const res = await apiFetch(`/reports/export/pdf/${encodeURIComponent(incidentId)}`);
+    const blob = res;
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

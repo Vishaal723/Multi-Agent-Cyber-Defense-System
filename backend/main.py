@@ -6,10 +6,12 @@ import os
 import json
 import uuid
 import asyncio
+import ipaddress
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Request, Response
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, PlainTextResponse
 
@@ -24,7 +26,8 @@ from models import (
 )
 from auth import (
     create_access_token, verify_password, hash_password,
-    get_current_user, require_roles
+    get_current_user, require_roles, authenticate_token, validate_jwt_configuration,
+    ACCESS_TOKEN_EXPIRE_MINUTES
 )
 from agents.coordinator import CoordinatorAgent
 from agents.network_monitor import NetworkMonitoringAgent
@@ -42,8 +45,58 @@ from agents.investigation_workflow import (
 )
 from reporting import ReportingEngine
 
-# Initialize database
+def configured_origins() -> List[str]:
+    raw = os.getenv("MACDS_ALLOWED_ORIGINS")
+    if raw is None:
+        return [
+            "http://localhost:5173", "http://localhost:5174",
+            "http://127.0.0.1:5173", "http://127.0.0.1:5174",
+        ]
+    return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+
+
+ALLOWED_ORIGINS = configured_origins()
+
+
+def validate_security_configuration() -> None:
+    validate_jwt_configuration()
+    for origin in ALLOWED_ORIGINS:
+        try:
+            parsed = urlsplit(origin)
+            valid = (
+                origin != "*"
+                and parsed.scheme in {"http", "https"}
+                and bool(parsed.netloc and parsed.hostname)
+                and parsed.username is None and parsed.password is None
+                and parsed.path in {"", "/"} and not parsed.query and not parsed.fragment
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            raise RuntimeError("MACDS_ALLOWED_ORIGINS must contain explicit HTTP(S) origins without paths or wildcards.")
+    if os.getenv("MACDS_ENV", "development").lower() == "production":
+        if os.getenv("MACDS_DEMO_MODE", "false").lower() in {"1", "true", "yes"}:
+            raise RuntimeError("MACDS_DEMO_MODE must be disabled in production.")
+        for origin in ALLOWED_ORIGINS:
+            parsed = urlsplit(origin)
+            try:
+                loopback = parsed.hostname.lower() == "localhost" or ipaddress.ip_address(parsed.hostname).is_loopback
+            except ValueError:
+                loopback = parsed.hostname.lower() == "localhost"
+            if parsed.scheme != "https" or loopback:
+                raise RuntimeError("Production MACDS_ALLOWED_ORIGINS must contain only non-loopback HTTPS origins.")
+
+
+# Fail before database initialization if deployment security settings are unsafe.
+validate_security_configuration()
 init_db()
+_account_check = get_db()
+_account_count = _account_check.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+_account_check.close()
+if _account_count == 0:
+    raise RuntimeError(
+        "No users are configured. Set the MACDS_BOOTSTRAP_ADMIN_* variables, or enable MACDS_DEMO_MODE only for a local demo."
+    )
 
 app = FastAPI(
     title="Multi-Agent Cyber Defense System (MACDS) API",
@@ -51,13 +104,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS Configuration
+# Explicit allowlist: credentials are only accepted from configured frontend origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Initialize Agents
@@ -99,6 +152,7 @@ ws_manager = ConnectionManager()
 # Background broadcast loop (<= 2 seconds refresh, meeting NFR-002)
 @app.on_event("startup")
 async def startup_event():
+    validate_security_configuration()
     async def telemetry_loop():
         while True:
             try:
@@ -142,9 +196,35 @@ async def startup_event():
 # Request & API Logging Middleware (FR-047)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    path = request.url.path
+    public_paths = {"/api/auth/login", "/api/auth/logout"}
+    current_user = None
+    if path.startswith("/api/") and path not in public_paths and request.method != "OPTIONS":
+        authorization = request.headers.get("authorization", "")
+        bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
+        try:
+            current_user = authenticate_token(bearer or request.cookies.get("macds_session"))
+            request.state.current_user = current_user
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": "Authentication required" if exc.status_code == 401 else "Request could not be authorized"},
+                headers={"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None,
+            )
+
+    content_length = request.headers.get("content-length")
+    transfer_encoding = request.headers.get("transfer-encoding", "").lower()
+    if transfer_encoding and not content_length and request.method in {"POST", "PUT", "PATCH"}:
+        return JSONResponse(status_code=411, content={"detail": "A Content-Length header is required for request bodies."})
+    if content_length:
+        try:
+            if int(content_length) > 1_048_576:
+                return JSONResponse(status_code=413, content={"detail": "Request body exceeds the 1 MiB limit."})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
+
     response = await call_next(request)
     # Avoid write-lock churn on high frequency polling endpoints
-    path = request.url.path
     if path not in ["/api/dashboard/stats", "/api/monitoring/traffic-stats", "/ws/live"] and not path.startswith("/assets"):
         try:
             now = datetime.now(timezone.utc).isoformat()
@@ -154,11 +234,11 @@ async def log_requests(request: Request, call_next):
                 "INSERT INTO audit_logs (log_id, username, event_type, level, description, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     str(uuid.uuid4()),
-                    "API_Client",
+                    current_user["username"] if current_user else "Anonymous",
                     "API_REQUEST",
                     "INFO" if response.status_code < 400 else "WARNING",
                     f"{request.method} {path} -> {response.status_code}",
-                    json.dumps({"status": response.status_code}),
+                    json.dumps({"status": response.status_code, "method": request.method, "path": path}),
                     now
                 )
             )
@@ -173,27 +253,35 @@ async def log_requests(request: Request, call_next):
 # ==========================================
 
 @app.post("/api/auth/login", response_model=LoginResponse)
-def login(creds: LoginRequest):
+def login(creds: LoginRequest, response: Response):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE username = ?", (creds.username,))
     user = cursor.fetchone()
-    conn.close()
-
     if not user or not verify_password(creds.password, user["password_hash"]):
+        conn.close()
         # Log auth failure (FR-045)
         now = datetime.now(timezone.utc).isoformat()
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO audit_logs (log_id, username, event_type, level, description, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid.uuid4()), creds.username, "AUTH_FAILURE", "WARNING", f"Failed login attempt for username '{creds.username}'", json.dumps({"reason": "Invalid password"}), now)
+            (str(uuid.uuid4()), None, "AUTH_FAILURE", "WARNING", "Failed login attempt", json.dumps({"reason": "Invalid credentials"}), now)
         )
         conn.commit()
         conn.close()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
 
+    if not user["password_hash"].startswith(("$2a$", "$2b$", "$2y$")):
+        cursor.execute("UPDATE users SET password_hash = ? WHERE user_id = ?", (hash_password(creds.password), user["user_id"]))
+        conn.commit()
+    conn.close()
+
     token = create_access_token({"sub": user["username"], "role": user["role"]})
+    response.set_cookie(
+        "macds_session", token, httponly=True, secure=os.getenv("MACDS_COOKIE_SECURE", "").lower() in {"1", "true", "yes"} or os.getenv("MACDS_ENV", "development").lower() == "production",
+        samesite="strict", max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/",
+    )
     
     # Log auth success
     now = datetime.now(timezone.utc).isoformat()
@@ -214,6 +302,27 @@ def login(creds: LoginRequest):
         email=user["email"],
         role=user["role"]
     )
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response):
+    response.delete_cookie("macds_session", path="/", httponly=True, samesite="strict")
+    return {"status": "Logged out"}
+
+
+@app.post("/api/auth/change-password")
+def change_password(req: PasswordChangeRequest, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT password_hash FROM users WHERE user_id = ?", (current_user["user_id"],))
+    row = cursor.fetchone()
+    if not row or not verify_password(req.current_password, row["password_hash"]):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    cursor.execute("UPDATE users SET password_hash = ? WHERE user_id = ?", (hash_password(req.new_password), current_user["user_id"]))
+    conn.commit()
+    conn.close()
+    return {"status": "Password updated. Existing sessions remain valid until their 60-minute tokens expire."}
 
 @app.get("/api/auth/me")
 def get_me(current_user: dict = Depends(get_current_user)):
@@ -323,11 +432,11 @@ def get_traffic_stats():
     return net_monitor.get_traffic_statistics()
 
 @app.get("/api/monitoring/topology/bfs")
-def get_bfs_topology(root: str = "Router-Core"):
+def get_bfs_topology(root: str = Query(default="Router-Core", min_length=1, max_length=100)):
     return net_monitor.run_bfs_discovery(root)
 
 @app.get("/api/monitoring/topology/dfs")
-def get_dfs_topology(root: str = "Router-Core"):
+def get_dfs_topology(root: str = Query(default="Router-Core", min_length=1, max_length=100)):
     return net_monitor.run_dfs_traversal(root)
 
 # ==========================================
@@ -335,7 +444,7 @@ def get_dfs_topology(root: str = "Router-Core"):
 # ==========================================
 
 @app.get("/api/threats")
-def list_threats(category: Optional[str] = None, severity: Optional[str] = None, limit: int = 50):
+def list_threats(category: Optional[str] = Query(default=None, max_length=80), severity: Optional[str] = Query(default=None, max_length=32), limit: int = Query(default=50, ge=1, le=200)):
     conn = get_db()
     cursor = conn.cursor()
     query = "SELECT * FROM threats WHERE 1=1"
@@ -369,7 +478,7 @@ def get_threat(threat_id: str):
 # ==========================================
 
 @app.get("/api/incidents")
-def list_incidents(status_filter: Optional[str] = None):
+def list_incidents(status_filter: Optional[str] = Query(default=None, max_length=32)):
     conn = get_db()
     cursor = conn.cursor()
     query = "SELECT * FROM incidents WHERE 1=1"
@@ -615,7 +724,7 @@ def get_weekly_report():
     return reporter.generate_weekly_report()
 
 @app.get("/api/reports/export/csv")
-def export_csv():
+def export_csv(current_user: dict = Depends(require_roles(["Security Analyst", "Read-Only Auditor"]))):
     csv_text = reporter.export_csv_threats()
     return Response(
         content=csv_text,
@@ -624,7 +733,7 @@ def export_csv():
     )
 
 @app.get("/api/reports/export/pdf/{incident_id}")
-def export_pdf(incident_id: str):
+def export_pdf(incident_id: str, current_user: dict = Depends(require_roles(["Security Analyst", "Read-Only Auditor"]))):
     try:
         pdf_bytes = reporter.export_pdf_incident_report(incident_id)
         return Response(
@@ -632,15 +741,15 @@ def export_pdf(incident_id: str):
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename=incident_{incident_id}_report.pdf"}
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF generation error: {e}")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to generate the incident PDF report.")
 
 # ==========================================
 # MODULE 12: AUDIT & SYSTEM LOGS (FR-045 - FR-048)
 # ==========================================
 
 @app.get("/api/logs/audit", response_model=List[AuditLogModel])
-def get_audit_logs(event_type: Optional[str] = None, limit: int = 100):
+def get_audit_logs(event_type: Optional[str] = Query(default=None, max_length=80), limit: int = Query(default=100, ge=1, le=500), current_user: dict = Depends(require_roles(["Read-Only Auditor"]))):
     conn = get_db()
     cursor = conn.cursor()
     query = "SELECT * FROM audit_logs WHERE 1=1"
@@ -776,7 +885,7 @@ def execute_investigation_plan(
         raise HTTPException(status_code=409, detail=exc.detail) from exc
 
 @app.post("/api/simulation/run")
-def run_attack_simulation(req: SimulateAttackRequest):
+def run_attack_simulation(req: SimulateAttackRequest, current_user: dict = Depends(require_roles(["Security Analyst"]))):
     try:
         return simulator.run_scenario(req.scenario, {
             "source_ip": req.source_ip,
@@ -793,6 +902,17 @@ def run_attack_simulation(req: SimulateAttackRequest):
 
 @app.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
+    origin = websocket.headers.get("origin", "").rstrip("/")
+    if not origin or origin not in ALLOWED_ORIGINS:
+        await websocket.close(code=4403)
+        return
+    authorization = websocket.headers.get("authorization", "")
+    bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
+    try:
+        authenticate_token(bearer or websocket.cookies.get("macds_session"))
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
     await ws_manager.connect(websocket)
     try:
         while True:

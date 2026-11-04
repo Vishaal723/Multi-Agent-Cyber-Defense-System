@@ -15,11 +15,12 @@ import ReportsView from './components/ReportsView';
 import AuditLogsView from './components/AuditLogsView';
 import UserManagementView from './components/UserManagementView';
 import SettingsView from './components/SettingsView';
-import { api, LiveTelemetrySocket, getAuthToken, removeAuthToken } from './api/client';
+import { api, LiveTelemetrySocket, removeAuthToken } from './api/client';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [currentUser, setCurrentUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [wsStatus, setWsStatus] = useState('connecting');
   const [telemetryData, setTelemetryData] = useState(null);
@@ -27,18 +28,26 @@ export default function App() {
   const [dashboardError, setDashboardError] = useState(null);
   const [preselectedIncidentId, setPreselectedIncidentId] = useState(null);
 
-  // Initialize stored user
+  // Validate the HttpOnly session cookie before loading any protected data.
   useEffect(() => {
     let active = true;
-    if (!getAuthToken()) return undefined;
     api.getMe().then((user) => {
       if (active) setCurrentUser(user);
     }).catch(() => {
       removeAuthToken();
       localStorage.removeItem('macds_user');
       if (active) setCurrentUser(null);
-    });
+    }).finally(() => { if (active) setAuthReady(true); });
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setCurrentUser(null);
+      setIsLoginOpen(true);
+    };
+    window.addEventListener('macds:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('macds:unauthorized', onUnauthorized);
   }, []);
 
   // Fetch initial dashboard metrics
@@ -55,13 +64,15 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!currentUser) return undefined;
     fetchDashboardStats();
     const interval = setInterval(fetchDashboardStats, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentUser]);
 
   // WebSocket Live Telemetry Subscriber
   useEffect(() => {
+    if (!currentUser) return undefined;
     const socket = new LiveTelemetrySocket(
       (msg) => {
         if (msg.type === 'TELEMETRY_UPDATE') {
@@ -74,9 +85,10 @@ export default function App() {
     );
 
     return () => socket.destroy();
-  }, []);
+  }, [currentUser]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await api.logout(); } catch { /* The local view still clears if the server session expired. */ }
     removeAuthToken();
     localStorage.removeItem('macds_user');
     setCurrentUser(null);
@@ -120,6 +132,9 @@ export default function App() {
 
         {/* Page Content Router */}
         <main className="page-body">
+          {!authReady && <div className="glass-panel" role="status">Checking secure session…</div>}
+          {authReady && !currentUser && <div className="glass-panel">Sign in to access the security console.</div>}
+          {authReady && currentUser && <>
           {currentTab === 'dashboard' && (
             <DashboardView
               dashboardStats={dashboardStats}
@@ -177,12 +192,13 @@ export default function App() {
           {currentTab === 'users' && (
             <UserManagementView />
           )}
+          </>}
         </main>
       </div>
 
       {/* Login & Role Switcher Modal */}
       <LoginModal
-        isOpen={isLoginOpen}
+        isOpen={isLoginOpen || (authReady && !currentUser)}
         onClose={() => setIsLoginOpen(false)}
         onLoginSuccess={handleLoginSuccess}
       />

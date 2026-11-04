@@ -3,19 +3,12 @@ import { Shield, Lock, User, Key, X, CheckCircle2, AlertTriangle } from 'lucide-
 import { api } from '../api/client';
 
 export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('Admin@123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
-
-  const presets = [
-    { name: 'Administrator', user: 'admin', pass: 'Admin@123', desc: 'Full root & agent control' },
-    { name: 'Security Analyst', user: 'analyst', pass: 'Analyst@123', desc: 'Threat triage & incident response' },
-    { name: 'Network Administrator', user: 'netadmin', pass: 'NetAdmin@123', desc: 'Topology & firewall ACL control' },
-    { name: 'Read-Only Auditor', user: 'auditor', pass: 'Auditor@123', desc: 'Compliance & audit log review' }
-  ];
 
   const handleLogin = async (e) => {
     if (e) e.preventDefault();
@@ -30,12 +23,6 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const selectPreset = (p) => {
-    setUsername(p.user);
-    setPassword(p.pass);
-    setError(null);
   };
 
   return (
@@ -88,39 +75,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
           </div>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>SOC Operator Authentication</h2>
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: 0 }}>Select an RBAC role profile or enter credentials</p>
-          </div>
-        </div>
-
-        {/* Role Presets */}
-        <div style={{ marginBottom: '18px' }}>
-          <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Quick Role Switcher:
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
-            {presets.map((p) => {
-              const isSelected = username === p.user;
-              return (
-                <button
-                  key={p.user}
-                  type="button"
-                  onClick={() => selectPreset(p)}
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    textAlign: 'left',
-                    background: isSelected ? 'rgba(0, 240, 255, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                    border: `1px solid ${isSelected ? 'rgba(0, 240, 255, 0.5)' : 'rgba(255, 255, 255, 0.08)'}`,
-                    color: isSelected ? '#00f0ff' : '#cbd5e1',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <div style={{ fontSize: '0.78rem', fontWeight: 600 }}>{p.name}</div>
-                  <div style={{ fontSize: '0.66rem', color: '#64748b' }}>{p.desc}</div>
-                </button>
-              );
-            })}
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: 0 }}>Sign in with your assigned account</p>
           </div>
         </div>
 

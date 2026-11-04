@@ -12,8 +12,10 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from jose import jwt
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -78,6 +80,10 @@ class AttackSimulatorHttpTests(unittest.TestCase):
         cls.base_url = f"http://127.0.0.1:{cls.port}"
         env = os.environ.copy()
         env["MACDS_DB_PATH"] = str(cls.database_path)
+        env["JWT_SECRET_KEY"] = "integration-test-only-secret-key-do-not-use-outside-tests"
+        env["MACDS_DEMO_MODE"] = "true"
+        env["MACDS_ENV"] = "test"
+        env["MACDS_ALLOWED_ORIGINS"] = "http://localhost:5174,http://127.0.0.1:5174"
         cls.server = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(cls.port), "--log-level", "error"],
             cwd=BACKEND_DIR,
@@ -100,6 +106,7 @@ class AttackSimulatorHttpTests(unittest.TestCase):
             cls.server.wait(timeout=5)
             cls.server_log.seek(0)
             raise RuntimeError("Uvicorn did not become ready within 25 seconds. " + cls.server_log.read())
+        cls.admin_token = cls.login_admin()
 
     @classmethod
     def tearDownClass(cls):
@@ -119,10 +126,14 @@ class AttackSimulatorHttpTests(unittest.TestCase):
 
     @classmethod
     def request_json(cls, payload):
+        token = getattr(cls, "admin_token", None)
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         request = Request(
             f"{cls.base_url}/api/simulation/run",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
@@ -139,10 +150,14 @@ class AttackSimulatorHttpTests(unittest.TestCase):
             return response.status, json.loads(response.read().decode("utf-8"))
 
     @classmethod
-    def request_api(cls, path, payload=None, method="GET", token=None):
+    def request_api(cls, path, payload=None, method="GET", token="__default__", extra_headers=None):
         headers = {"Content-Type": "application/json"}
+        if token == "__default__":
+            token = getattr(cls, "admin_token", None)
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if extra_headers:
+            headers.update(extra_headers)
         request = Request(
             f"{cls.base_url}{path}",
             data=json.dumps(payload).encode("utf-8") if payload is not None else None,
@@ -479,6 +494,136 @@ class AttackSimulatorHttpTests(unittest.TestCase):
                 self.assertTrue(result["is_proven"], result)
                 self.assertEqual(goal, result["hypothesis_goal"])
                 self.assertIn("proof_tree", result)
+
+    def test_security_auth_role_cors_and_validation(self):
+        status, body = self.request_api("/api/dashboard/stats", token=False)
+        self.assertEqual(401, status, body)
+        for name, token in (
+            ("malformed", "not-a-jwt"),
+            ("expired", jwt.encode({"sub": "admin", "iss": "MACDS", "exp": datetime.now(timezone.utc) - timedelta(minutes=1)}, "integration-test-only-secret-key-do-not-use-outside-tests", algorithm="HS256")),
+            ("bad signature", jwt.encode({"sub": "admin", "iss": "MACDS", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, "different-test-secret-key-do-not-use", algorithm="HS256")),
+        ):
+            with self.subTest(token=name):
+                status, body = self.request_api("/api/dashboard/stats", token=token)
+                self.assertEqual(401, status, body)
+
+        status, body = self.request_api("/api/auth/users", token=self.login_identity("analyst", "Analyst@123"))
+        self.assertEqual(403, status, body)
+        status, body = self.request_api("/api/logs/audit", token=self.login_identity("analyst", "Analyst@123"))
+        self.assertEqual(403, status, body)
+        auditor_token = self.login_identity("auditor", "Auditor@123")
+        status, logs = self.request_api("/api/logs/audit", token=auditor_token)
+        self.assertEqual(200, status, logs)
+        self.assertIsInstance(logs, list)
+        status, body = self.request_api("/api/reports/export/csv", token=False)
+        self.assertEqual(401, status, body)
+
+        netadmin_token = self.login_identity("netadmin", "NetAdmin@123")
+        status, body = self.request_api("/api/simulation/run", {"scenario": "brute_force"}, "POST", netadmin_token)
+        self.assertEqual(403, status, body)
+        status, body = self.request_api("/api/threats?limit=10000")
+        self.assertEqual(422, status, body)
+        status, body = self.request_api("/api/auth/users", {"username": "weak", "password": "short", "email": "a@b.test", "role": "Root"}, "POST")
+        self.assertEqual(422, status, body)
+
+        def cors_origin(origin):
+            request = Request(f"{self.base_url}/api/dashboard/stats", headers={"Authorization": f"Bearer {self.admin_token}", "Origin": origin})
+            try:
+                with urlopen(request, timeout=10) as response:
+                    return response.headers.get("Access-Control-Allow-Origin")
+            except HTTPError as exc:
+                return exc.headers.get("Access-Control-Allow-Origin")
+        self.assertEqual("http://localhost:5174", cors_origin("http://localhost:5174"))
+        self.assertIsNone(cors_origin("http://untrusted.example"))
+
+    @classmethod
+    def login_identity(cls, username, password):
+        status, body = cls.request_api("/api/auth/login", {"username": username, "password": password}, "POST", token=False)
+        if status != 200:
+            raise AssertionError(f"Test account login failed: {status} {body}")
+        return body["access_token"]
+
+    def test_cookie_websocket_request_limits_and_legacy_password_rehash(self):
+        # The regular login response also establishes an HttpOnly same-site session cookie.
+        request = Request(
+            f"{self.base_url}/api/auth/login",
+            data=json.dumps({"username": "admin", "password": "Admin@123"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urlopen(request, timeout=10) as response:
+            cookie = response.headers.get("Set-Cookie", "")
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("samesite=strict", cookie.lower())
+
+        status, _ = self.request_api("/api/auth/me", token=False, extra_headers={"Cookie": cookie.split(";", 1)[0]})
+        self.assertEqual(200, status)
+
+        def handshake(origin, cookie_header=None):
+            import base64
+            import os as _os
+            with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+                headers = [
+                    "GET /ws/live HTTP/1.1", f"Host: 127.0.0.1:{self.port}",
+                    "Upgrade: websocket", "Connection: Upgrade", "Sec-WebSocket-Version: 13",
+                    f"Sec-WebSocket-Key: {base64.b64encode(_os.urandom(16)).decode()}", f"Origin: {origin}",
+                ]
+                if cookie_header:
+                    headers.append(f"Cookie: {cookie_header}")
+                sock.sendall(("\r\n".join(headers) + "\r\n\r\n").encode("ascii"))
+                return sock.recv(1024).split(b"\r\n", 1)[0]
+
+        self.assertIn(b"101", handshake("http://localhost:5174", cookie.split(";", 1)[0]))
+        self.assertIn(b"403", handshake("http://localhost:5174"))
+        self.assertIn(b"403", handshake("http://untrusted.example", cookie.split(";", 1)[0]))
+
+        oversized = b"{" + b" " * 1_048_576 + b"}"
+        request = Request(f"{self.base_url}/api/simulation/run", data=oversized, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.admin_token}"}, method="POST")
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=10)
+        self.assertEqual(413, raised.exception.code)
+
+        import hashlib
+        import sqlite3
+        from datetime import timezone
+        from uuid import uuid4
+        legacy_username = "legacy_security_test"
+        conn = sqlite3.connect(self.database_path)
+        try:
+            conn.execute("INSERT INTO users (user_id, username, password_hash, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)", (str(uuid4()), legacy_username, hashlib.sha256(b"Legacy-password-123").hexdigest(), "legacy@test.local", "Security Analyst", datetime.now(timezone.utc).isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
+        status, body = self.request_api("/api/auth/login", {"username": legacy_username, "password": "Legacy-password-123"}, "POST", token=False)
+        self.assertEqual(200, status, body)
+        conn = sqlite3.connect(self.database_path)
+        try:
+            new_hash = conn.execute("SELECT password_hash FROM users WHERE username = ?", (legacy_username,)).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertTrue(new_hash.startswith("$2"), new_hash)
+
+    def test_unsafe_startup_configuration_is_rejected_before_database_init(self):
+        for mode in ("missing-secret", "production-default-origins"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp_dir:
+                isolated_path = Path(temp_dir) / "must-not-be-created.db"
+                env = os.environ.copy()
+                env["MACDS_DB_PATH"] = str(isolated_path)
+                env["MACDS_DEMO_MODE"] = "false"
+                env.pop("JWT_SECRET_KEY", None)
+                env.pop("MACDS_ALLOWED_ORIGINS", None)
+                if mode == "production-default-origins":
+                    env["JWT_SECRET_KEY"] = "test-only-secret-that-is-long-enough"
+                    env["MACDS_ENV"] = "production"
+                else:
+                    env["MACDS_ENV"] = "test"
+                result = subprocess.run(
+                    [sys.executable, "-c", "import main"], cwd=BACKEND_DIR, env=env,
+                    capture_output=True, text=True, timeout=25,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(isolated_path.exists(), "Invalid configuration initialized the database before failing.")
+                expected = "JWT_SECRET_KEY" if mode == "missing-secret" else "MACDS_ALLOWED_ORIGINS"
+                self.assertIn(expected, result.stderr)
 
 
 if __name__ == "__main__":

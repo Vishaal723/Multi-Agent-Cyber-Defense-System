@@ -1,0 +1,198 @@
+MACDS — TECHNOLOGY STACK, ARCHITECTURE, AND PROJECT FLOW
+========================================================
+
+PROJECT OVERVIEW
+----------------
+MACDS is a browser-based, multi-agent cybersecurity simulation and SOC-style
+demonstration application. Its network events and telemetry are generated or
+stored by the application; it is not connected to a production network sensor.
+
+TECHNOLOGY STACK
+----------------
+Frontend
+  - JavaScript, React 19, and React DOM 19
+  - Vite 6 for development serving and production builds
+  - lucide-react for icons; clsx for class-name composition
+  - Fetch API for HTTP requests and the browser WebSocket API for live updates
+  - Vite development proxy forwards /api to FastAPI at 127.0.0.1:8000 and
+    /ws to the backend WebSocket endpoint
+
+Backend
+  - Python and FastAPI for REST endpoints and WebSocket telemetry
+  - Pydantic request/response validation
+  - SQLite via Python's sqlite3 module for application state and audit records
+  - bcrypt for password hashing; python-jose for signed JWT sessions
+  - Uvicorn ASGI server
+  - ReportLab for PDF incident reports; Python csv for CSV exports
+
+Persistence and configuration
+  - SQLite database path is selected with MACDS_DB_PATH. When it is unset,
+    backend/data/macds.db is the existing default.
+  - JWT_SECRET_KEY, MACDS_ALLOWED_ORIGINS, MACDS_ENV, and account-bootstrap or
+    explicit local-demo settings are supplied through the process environment.
+  - The database contains accounts, agents, simulated network devices,
+    threats, incidents, response records, rules, settings, metrics, audit logs,
+    and Phase 5 investigation/plan/execution records.
+
+HIGH-LEVEL ARCHITECTURE
+-----------------------
+1. Browser presentation layer
+   frontend/src/App.jsx owns page selection, authentication state, dashboard
+   state, and the authenticated telemetry connection. Screen-level React
+   components render Dashboard, Live Monitoring, Threats, Incidents, AI Lab,
+   Attack Simulator, Investigation Workbench, Reports, Audit Logs, Knowledge
+   Base, Rules, Agents, Settings, and User Management.
+
+2. Frontend communication layer
+   frontend/src/api/client.js sends same-origin HTTP requests to /api and
+   opens /ws/live. The development Vite proxy forwards those requests to
+   FastAPI. Browser sessions use an HttpOnly same-site cookie; application
+   code does not keep the bearer token in localStorage.
+
+3. API and access-control layer
+   backend/main.py defines FastAPI routes, validates the configured security
+   settings, initializes the database, constructs the agents, and runs the
+   telemetry broadcast loop. API requests require a valid signed session
+   except for login and logout. Role checks guard sensitive mutations, exports,
+   audit access, and simulation operations. WebSocket connections require a
+   valid session and an allowlisted Origin.
+
+4. Agent/service layer
+   API handlers pass work to purpose-specific agents. Agents coordinate through
+   the Coordinator Agent and share a database connection factory. The nine
+   configured agents are:
+     Coordinator, Network Monitoring, Intrusion Detection, Threat Correlation,
+     Knowledge Base, Reasoning, Planning, Response, and Learning.
+
+5. Data layer
+   Agents and reporting functions use parameterized SQLite statements through
+   backend/database.py. Database initialization creates missing tables and
+   seeds configured demonstration data for a new database. Existing project
+   data is not replaced by an isolated test database.
+
+ARCHITECTURE DIAGRAM
+-------------------
+
+  OPERATOR / ANALYST
+         |
+         v
+  +------------------------------+
+  | Browser: React 19 SPA        |
+  | App.jsx + screen components  |
+  +------------------------------+
+         |
+         v
+  +------------------------------+       +-------------------------------+
+  | frontend/src/api/client.js   |------>| Vite dev server / proxy       |
+  | HTTP fetch + WebSocket       |       | /api -> FastAPI :8000         |
+  | HttpOnly session cookie      |       | /ws  -> FastAPI WebSocket     |
+  +------------------------------+       +-------------------------------+
+                                                   |
+                            +----------------------+------------------+
+                            |                                         |
+                     HTTP /api                                  WebSocket /ws
+                            |                                         |
+                            v                                         v
+  +--------------------------------------------------------------------------+
+  | FastAPI: backend/main.py                                                 |
+  | Authentication + role checks | Pydantic validation | routes | reports  |
+  +--------------------------------------------------------------------------+
+                            |                                         ^
+                            | request processing                    | telemetry
+                            v                                         | broadcast
+  +--------------------------------------------------------------------------+
+  | Agent and workflow services                                               |
+  | Coordinator | Network Monitor | Intrusion Detection | Threat Correlation  |
+  | Knowledge Base | Reasoning | Planning | Response | Learning               |
+  | Attack Simulator | Investigation and Response Planning                   |
+  +--------------------------------------------------------------------------+
+                            |                                         ^
+                            | parameterized reads/writes             | simulated
+                            v                                         | traffic,
+  +--------------------------------------------------------------------------+ KPIs,
+  | SQLite: selected by MACDS_DB_PATH                                        | agent data
+  | users | devices | threats | incidents | rules | responses | audit | plans |
+  +--------------------------------------------------------------------------+
+
+  Response path: SQLite / agents -> FastAPI JSON, CSV, or PDF -> API client
+                 -> React view.
+  Live path: FastAPI background telemetry loop -> authenticated WebSocket
+             manager -> browser telemetry views.
+  Vite's proxy is used in development; in another deployment, the frontend
+  hosting/reverse-proxy configuration must provide the equivalent /api and
+  /ws routing and a matching MACDS_ALLOWED_ORIGINS value.
+
+CORE REQUEST AND DATA FLOW
+--------------------------
+Browser -> React page/component -> frontend API client -> Vite proxy
+        -> FastAPI route/authentication/role validation -> agent/service
+        -> SQLite reads or writes -> JSON/PDF/CSV response -> React render.
+
+For live telemetry, FastAPI's background loop asks the monitoring, learning,
+and coordinator agents for simulated traffic, KPIs, and agent state. It
+broadcasts updates to authenticated WebSocket clients. The stream represents
+the application's simulated environment, not live production network data.
+
+ATTACK SIMULATOR FLOW
+---------------------
+An authorized operator selects one of six synthetic scenarios. The simulator
+validates the scenario and inputs, then runs its seven-stage demonstration
+pipeline through network monitoring, intrusion detection, threat correlation,
+reasoning/planning, simulated response, and learning feedback. Generated threat,
+incident, response, metric, and audit data are stored in SQLite. The seven-stage
+trace is returned to the UI. No real attack traffic is generated and response
+actions change only the application's simulated state.
+
+AI ALGORITHMS LAB FLOW
+----------------------
+The Lab calls the existing backend traversal, planning, constraint-solving,
+game-theory, and rule-reasoning endpoints. FastAPI validates each request and
+passes it to the Network Monitoring, Planning, or Reasoning Agent. The UI renders
+the actual returned structures, including BFS/DFS counts and proof evidence.
+
+PHASE 5 INVESTIGATION AND RESPONSE-PLANNING FLOW
+------------------------------------------------
+1. A simulated incident is selected and the backend loads its stored threat
+   evidence and configured topology.
+2. The investigation service distinguishes observed source/destination data
+   from topology-inferred route hops.
+3. An authorized analyst or administrator can designate protected assets.
+4. The backend generates three explainable simulated response candidates and
+   validates each against the active constraints.
+5. The analyst selects and confirms a valid plan. The backend rechecks the
+   constraint immediately before execution, then records the simulated outcome
+   and audit event in SQLite. The response agent also protects constrained
+   assets when its response route is called directly.
+
+STARTUP ENTRY POINTS
+--------------------
+Backend (run from backend/):
+  python -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+Frontend (run from frontend/):
+  npm.cmd run dev -- --host 127.0.0.1 --port 5173
+
+Frontend production build:
+  npm.cmd run build
+
+Before starting a fresh backend database, configure a JWT signing secret and
+either a first-administrator bootstrap account or explicit local demo mode.
+See backend/SECURITY.md for the development-only setup and security notes.
+
+KEY SOURCE LOCATIONS
+--------------------
+  frontend/src/App.jsx                  Application shell and auth/session flow
+  frontend/src/api/client.js             REST and WebSocket client
+  frontend/src/components/               Screens and feature workbenches
+  frontend/vite.config.js                Development API/WebSocket proxy
+  backend/main.py                        FastAPI routes and application startup
+  backend/auth.py                        Password and JWT verification, role checks
+  backend/database.py                    SQLite path, schema, and seed behavior
+  backend/models.py                      Pydantic API request/response schemas
+  backend/agents/                        Nine agents, simulator, and Phase 5 flow
+  backend/reporting.py                   CSV/PDF and scheduled report generation
+  backend/test_suite.py                  Backend unit/regression suite
+  backend/test_simulator_api.py           HTTP integration and security tests
+
+This file describes the repository implementation; it is not a claim of
+production security certification or real-world detection capability.

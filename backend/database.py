@@ -241,18 +241,40 @@ def seed_initial_data(cursor, conn):
     # Check if admin user exists
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
-        import hashlib
-        def hash_pw(pw):
-            return hashlib.sha256(pw.encode()).hexdigest()
+        import bcrypt
+        import os
 
         now = datetime.now(timezone.utc).isoformat()
-        users = [
-            (str(uuid.uuid4()), "admin", hash_pw("Admin@123"), "admin@defense.local", "Administrator", now),
-            (str(uuid.uuid4()), "analyst", hash_pw("Analyst@123"), "analyst@defense.local", "Security Analyst", now),
-            (str(uuid.uuid4()), "netadmin", hash_pw("NetAdmin@123"), "netadmin@defense.local", "Network Administrator", now),
-            (str(uuid.uuid4()), "auditor", hash_pw("Auditor@123"), "auditor@defense.local", "Read-Only Auditor", now)
-        ]
-        cursor.executemany("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", users)
+        demo_mode = os.getenv("MACDS_DEMO_MODE", "false").lower() in {"1", "true", "yes"}
+        if demo_mode:
+            users = [
+                (str(uuid.uuid4()), "admin", "Admin@123", "admin@defense.local", "Administrator"),
+                (str(uuid.uuid4()), "analyst", "Analyst@123", "analyst@defense.local", "Security Analyst"),
+                (str(uuid.uuid4()), "netadmin", "NetAdmin@123", "netadmin@defense.local", "Network Administrator"),
+                (str(uuid.uuid4()), "auditor", "Auditor@123", "auditor@defense.local", "Read-Only Auditor"),
+            ]
+        else:
+            import re
+            username = os.getenv("MACDS_BOOTSTRAP_ADMIN_USERNAME", "").strip()
+            password = os.getenv("MACDS_BOOTSTRAP_ADMIN_PASSWORD", "")
+            email = os.getenv("MACDS_BOOTSTRAP_ADMIN_EMAIL", "").strip()
+            valid_bootstrap = (
+                3 <= len(username) <= 64
+                and re.fullmatch(r"[A-Za-z0-9_.-]+", username) is not None
+                and 12 <= len(password) <= 72
+                and len(password.encode("utf-8")) <= 72
+                and re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) is not None
+            )
+            users = [(str(uuid.uuid4()), username, password, email, "Administrator")] if valid_bootstrap else []
+
+        for user_id, username, password, email, role in users:
+            if len(password.encode("utf-8")) > 72:
+                raise RuntimeError("Bootstrap password exceeds bcrypt's 72-byte limit.")
+            password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("ascii")
+            cursor.execute(
+                "INSERT INTO users (user_id, username, password_hash, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, username, password_hash, email, role, now),
+            )
 
     # Pre-seed agents (PRD Section 10)
     cursor.execute("SELECT COUNT(*) FROM agents")
